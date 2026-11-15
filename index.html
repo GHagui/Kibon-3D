@@ -1,0 +1,1015 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101412">
+<meta name="description" content="Modelo 3D interativo do Kibon: MDT, ortofoto e curvas de nível, com chuva, escoamento superficial e iluminação noturna.">
+<title>Kibon 3D</title>
+<style>
+  :root {
+    --panel: rgba(14, 18, 16, 0.86); --line: rgba(255,255,255,0.10); --hover: rgba(255,255,255,0.05);
+    --text: #e9ece7; --muted: #9ba49a; --accent: #e2b04a; --accent-bg: rgba(226,176,74,.16);
+    --water: #7cc4ff; --water-bg: rgba(124,196,255,.16);
+    --safe-t: env(safe-area-inset-top, 0px); --safe-b: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #26302b; color: var(--text);
+    font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  canvas { display: block; touch-action: none; }
+  button { font: inherit; color: inherit; }
+
+  #panel { position: fixed; top: 16px; left: 16px; width: 300px; max-height: calc(100dvh - 32px);
+    display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); z-index: 2; }
+  #panel header { display: flex; align-items: center; gap: 10px; padding: 14px 14px 10px; cursor: pointer; user-select: none; }
+  #panel h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: .01em; }
+  .sub { color: var(--muted); font-size: 12px; }
+  #toggle { margin-left: auto; flex: none; width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line);
+    background: transparent; display: grid; place-items: center; cursor: pointer; }
+  #toggle svg { transition: transform .2s; }
+  #panel.collapsed #toggle svg { transform: rotate(180deg); }
+  .grip { display: none; }
+  .quick { padding: 0 14px 12px; }
+  .tabs { display: flex; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .tabs button { flex: 1; padding: 9px 0; background: transparent; border: 0; color: var(--muted); cursor: pointer;
+    border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+  .body { overflow-y: auto; padding: 6px 14px 14px; overscroll-behavior: contain; }
+  #panel.collapsed .tabs, #panel.collapsed .body { display: none; }
+
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; }
+  .row > label { color: var(--muted); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex: none; }
+  .seg button { white-space: nowrap; background: transparent; color: var(--muted); border: 0; padding: 5px 10px; cursor: pointer; }
+  .seg button:hover { background: var(--hover); }
+  .seg button.on { background: var(--accent-bg); color: var(--accent); }
+  #weather button.on[data-w=chuva] { background: var(--water-bg); color: var(--water); }
+  .seg.wide { display: flex; width: 100%; } .seg.wide button { flex: 1; padding-left: 4px; padding-right: 4px; }
+  .ctl { display: flex; align-items: center; gap: 8px; }
+  input[type=range] { width: 120px; accent-color: var(--accent); margin: 0; }
+  input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
+  .val { font-variant-numeric: tabular-nums; color: var(--text); min-width: 40px; text-align: right; }
+  .hour { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .hour input { flex: 1; width: auto; }
+  .hour .val { font-size: 15px; font-weight: 600; min-width: 48px; }
+  .meter { height: 4px; border-radius: 2px; background: rgba(255,255,255,.08); overflow: hidden; margin: 2px 0 8px; }
+  .meter > div { height: 100%; width: 0; background: var(--water); transition: width .3s; }
+  .legend { height: 8px; border-radius: 4px; margin-top: 4px; }
+  .lg-l { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 3px; }
+  .note { color: var(--muted); font-size: 11px; margin-top: 12px; line-height: 1.5; }
+
+  #readout { position: fixed; right: 16px; bottom: 16px; width: 290px; padding: 12px 14px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 12px; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    font-variant-numeric: tabular-nums; z-index: 1; }
+  #readout .z { font-size: 20px; font-weight: 600; color: var(--accent); }
+  #readout .z small { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: 6px; }
+  #readout .c { color: var(--muted); font-size: 12px; }
+  #readout .w { color: var(--water); font-size: 12px; }
+  #north { position: fixed; right: 16px; top: calc(16px + var(--safe-t)); width: 44px; height: 44px; z-index: 1; }
+  #flash { position: fixed; inset: 0; background: #dfe8ff; opacity: 0; pointer-events: none; }
+
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #1b221e; z-index: 5; transition: opacity .4s; }
+  #loading .box { width: min(320px, 80vw); }
+  #loading h2 { margin: 0 0 4px; font-size: 16px; font-weight: 600; }
+  #loading .bar { height: 4px; background: rgba(255,255,255,.1); border-radius: 2px; overflow: hidden; margin: 14px 0 8px; }
+  #loading .bar div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  #loading .step { color: var(--muted); font-size: 12px; }
+
+  @media (max-width: 760px) {
+    #panel { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 64dvh; border-radius: 16px 16px 0 0;
+      border-left: 0; border-right: 0; border-bottom: 0; padding-bottom: var(--safe-b); }
+    #panel header { padding: 6px 16px 8px; flex-wrap: wrap; }
+    .grip { display: block; width: 36px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.25); margin: 0 auto 2px; flex-basis: 100%; max-width: 36px; }
+    #panel header .sub { display: none; }
+    .quick { padding: 0 16px 12px; }
+    .body { padding: 6px 16px 16px; }
+    .row { min-height: 40px; margin: 4px 0; }
+    input[type=range] { width: 150px; height: 28px; }
+    input[type=checkbox] { width: 22px; height: 22px; }
+    .seg button { padding: 9px 12px; }
+    .tabs button { padding: 12px 0; }
+    #readout { top: calc(12px + var(--safe-t)); left: 12px; right: 70px; bottom: auto; width: auto; padding: 10px 12px; }
+    #readout.idle { display: none; }
+    #readout .z { font-size: 17px; }
+    #north { right: 12px; top: calc(12px + var(--safe-t)); }
+  }
+</style>
+</head>
+<body>
+<div id="loading"><div class="box">
+  <h2>Kibon 3D</h2>
+  <div class="sub">Modelo do terreno com chuva, escoamento e iluminação noturna</div>
+  <div class="bar"><div id="lbar"></div></div>
+  <div class="step" id="lstep">Baixando dados…</div>
+</div></div>
+<div id="flash"></div>
+
+<div id="panel">
+  <header id="phead">
+    <span class="grip"></span>
+    <div><h1>Kibon · Modelo 3D</h1><div class="sub">MDT + ortofoto + curvas de 1 m · SIRGAS 2000</div></div>
+    <button id="toggle" aria-label="Recolher ou expandir controles"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 9l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+  </header>
+  <div class="quick">
+    <div class="hour"><input type="range" id="hora" min="0" max="23.95" step="0.05" value="10" aria-label="Hora do dia"><span class="val" id="horav">10:00</span></div>
+    <div class="seg wide" id="presets"><button data-h="7">Manhã</button><button data-h="13">Tarde</button><button data-h="18">Pôr do sol</button><button data-h="21.5">Noite</button></div>
+    <div class="row" style="margin:8px 0 0"><label>Tempo</label>
+      <div class="seg" id="weather"><button data-w="sol" class="on">Sol</button><button data-w="chuva">Chuva</button></div></div>
+  </div>
+  <nav class="tabs">
+    <button data-tab="clima" class="on">Clima</button><button data-tab="agua">Água</button><button data-tab="terreno">Terreno</button>
+  </nav>
+  <div class="body">
+    <section data-tab="clima">
+      <div class="row"><label for="intens">Intensidade da chuva</label>
+        <span class="ctl"><input type="range" id="intens" min="0.1" max="1" step="0.05" value="0.6"><span class="val" id="intensv">60%</span></span></div>
+      <div class="row"><label for="vento">Vento</label>
+        <span class="ctl"><input type="range" id="vento" min="0" max="1" step="0.05" value="0.3"><span class="val" id="ventov">30%</span></span></div>
+      <div class="row"><label for="postes">Iluminação pública</label><input type="checkbox" id="postes" checked></div>
+      <div class="row"><label for="casas">Luzes das casas</label><input type="checkbox" id="casas" checked></div>
+    </section>
+    <section data-tab="agua" hidden>
+      <div class="row"><label for="escoa">Escoamento animado</label><input type="checkbox" id="escoa" checked></div>
+      <div class="row"><label for="esp">Espessura</label>
+        <span class="ctl"><input type="range" id="esp" min="1" max="10" step="0.5" value="2"><span class="val" id="espv">2×</span></span></div>
+      <div class="row"><label for="acel">Aceleração</label>
+        <span class="ctl"><input type="range" id="acel" min="1" max="20" step="1" value="6"><span class="val" id="acelv">6×</span></span></div>
+      <div class="row" style="margin-bottom:0"><label>Solo encharcado</label><span class="val" id="wetv">0%</span></div>
+      <div class="meter"><div id="wetbar"></div></div>
+      <div class="note">Ligue a chuva para o solo encharcar: os canais de drenagem enchem aos poucos e as partículas seguem o caminho da água até os exutórios.</div>
+    </section>
+    <section data-tab="terreno" hidden>
+      <div class="row"><label>Superfície</label>
+        <div class="seg" id="mode"><button data-m="foto" class="on">Ortofoto</button><button data-m="hipso">Altitude</button></div></div>
+      <div id="legend" style="display:none; margin: -2px 0 8px">
+        <div class="legend" id="lgbar"></div>
+        <div class="lg-l"><span id="lgmin"></span><span id="lgmax"></span></div>
+      </div>
+      <div class="row"><label for="curvas">Curvas de nível</label><input type="checkbox" id="curvas"></div>
+      <div class="row"><label for="exag">Exagero vertical</label>
+        <span class="ctl"><input type="range" id="exag" min="1" max="4" step="0.1" value="1.5"><span class="val" id="exagv">1.5×</span></span></div>
+      <div class="row"><label>Qualidade gráfica</label>
+        <div class="seg" id="quality"><button data-q="leve">Leve</button><button data-q="alta">Alta</button></div></div>
+      <div class="note">Fora do levantamento o relevo é estimado. Luzes das casas detectadas na ortofoto.<br>Vias © colaboradores do OpenStreetMap (ODbL).</div>
+    </section>
+  </div>
+</div>
+
+<div id="readout"><div class="c" id="rhint"></div></div>
+<svg id="north" viewBox="-22 -22 44 44" aria-hidden="true"><g id="northg">
+  <circle r="20" fill="rgba(14,18,16,.86)" stroke="rgba(255,255,255,.14)"/>
+  <path d="M0 -15 L6 4 L0 0 L-6 4Z" fill="#e2b04a"/><path d="M0 15 L6 4 L0 0 L-6 4Z" fill="#5b6359"/></g></svg>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { Sky } from 'three/addons/objects/Sky.js';
+
+const $ = id => document.getElementById(id);
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp01 = t => Math.min(1, Math.max(0, t));
+const ss = THREE.MathUtils.smoothstep;
+
+// ---------- quality profile: phones and small/weak devices get the light one ----------
+const QUALITY = (() => {
+  const q = new URLSearchParams(location.search).get('q');
+  if (q === 'alta' || q === 'leve') return q;
+  const coarse = matchMedia('(pointer: coarse)').matches, small = Math.min(innerWidth, innerHeight) < 700;
+  return coarse || small || (navigator.hardwareConcurrency || 8) <= 4 ? 'leve' : 'alta';
+})();
+const CFG = QUALITY === 'leve'
+  ? { stride: 2, tex: 'orto-2k.jpg', particles: 9000, rain: 12000, clouds: 70, stars: 1200, lampTex: 1024, dpr: 1.5, aa: false }
+  : { stride: 1, tex: 'orto-4k.jpg', particles: 26000, rain: 32000, clouds: 160, stars: 2600, lampTex: 2048, dpr: 2, aa: true };
+const TOUCH = matchMedia('(pointer: coarse)').matches;
+
+// ---------- loading ----------
+const progress = {};
+const setStep = s => { $('lstep').textContent = s; };
+function showProgress() {
+  const v = Object.values(progress), p = v.reduce((s, x) => s + x, 0) / Math.max(1, v.length);
+  $('lbar').style.width = (p * 90).toFixed(1) + '%';
+}
+async function fetchBytes(url) {
+  progress[url] = 0;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url}: ${res.status}`);
+  const total = +res.headers.get('content-length') || 0, reader = res.body.getReader(), chunks = [];
+  let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value); got += value.length;
+    if (total) { progress[url] = Math.min(1, got / total); showProgress(); }
+  }
+  progress[url] = 1; showProgress();
+  const out = new Uint8Array(got); let o = 0;
+  for (const c of chunks) { out.set(c, o); o += c.length; }
+  return out;
+}
+const gunzip = async bytes => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+
+let M, gridRaw, ovRaw, img;
+try {
+  const [meta, grid, ov, tex] = await Promise.all([
+    fetchBytes('assets/meta.json'), fetchBytes('assets/grid.bin.gz'), fetchBytes('assets/overlays.bin.gz'), fetchBytes('assets/' + CFG.tex)]);
+  setStep('Descompactando…');
+  M = JSON.parse(new TextDecoder().decode(meta));
+  [gridRaw, ovRaw] = await Promise.all([gunzip(grid), gunzip(ov)]);
+  img = new Image();
+  img.src = URL.createObjectURL(new Blob([tex], { type: 'image/jpeg' }));
+  await img.decode();
+} catch (err) {
+  setStep('Não foi possível carregar os dados: ' + err.message);
+  throw err;
+}
+setStep('Montando terreno…');
+await nextFrame();
+
+const { cols, rows, width, height, zmin, zmax } = M;
+const N = cols * rows, relief = zmax - zmin;
+const dx = width / (cols - 1), dz = height / (rows - 1), cellArea = dx * dz;
+const cx = k => ((k % cols) / (cols - 1) - 0.5) * width;
+const cz = k => (((k / cols) | 0) / (rows - 1) - 0.5) * height;
+
+// heights are stored as per-row deltas of centimetres above zmin (0 = no data)
+const H = new Uint16Array(N);
+{
+  const delta = new Int16Array(gridRaw.buffer, 0, N);
+  for (let j = 0; j < rows; j++) { let a = 0; for (let i = 0; i < cols; i++) { const k = j * cols + i; a += delta[k]; H[k] = a; } }
+}
+const dirc = gridRaw.subarray(2 * N, 3 * N), pondCm = gridRaw.subarray(3 * N, 4 * N);
+const hAt = k => H[k] ? (H[k] - 1) / 100 : NaN;
+const ovSlice = (Type, off, count) => new Type(ovRaw.slice(off, off + count * Type.BYTES_PER_ELEMENT).buffer);
+const O = M.overlays;
+const C = ovSlice(Int16Array, O.contours, M.nContour * 2);
+const LXZ = ovSlice(Int16Array, O.lamps, M.nLamps * 2), LK = ovSlice(Uint8Array, O.lampKind, M.nLamps), NL = M.nLamps;
+const HXZ = ovSlice(Int16Array, O.houses, M.nHouses * 2), HK = ovSlice(Uint8Array, O.houseKind, M.nHouses), NH = M.nHouses;
+
+// ---------- hydrology (pre-computed D8 directions after a priority-flood fill) ----------
+const NB = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
+const rec = new Int32Array(N).fill(-1), fill = new Float32Array(N), acc = new Float32Array(N);
+const validCells = [];
+for (let k = 0; k < N; k++) {
+  if (!H[k]) continue;
+  validCells.push(k);
+  fill[k] = hAt(k) + pondCm[k] / 100;
+  const d = dirc[k];
+  if (d !== 255) rec[k] = k + NB[d][0] + NB[d][1] * cols;
+}
+{
+  // accumulate upstream area in topological order (sources first)
+  const indeg = new Uint8Array(N), queue = new Int32Array(N);
+  let qh = 0, qt = 0;
+  for (const k of validCells) { acc[k] = 1; if (rec[k] >= 0) indeg[rec[k]]++; }
+  for (const k of validCells) if (!indeg[k]) queue[qt++] = k;
+  while (qh < qt) { const k = queue[qh++], r = rec[k]; if (r >= 0) { acc[r] += acc[k]; if (--indeg[r] === 0) queue[qt++] = r; } }
+}
+let accMax = 1; for (const k of validCells) if (acc[k] > accMax) accMax = acc[k];
+const logAccMax = Math.log(accMax), nValid = validCells.length;
+
+// ---------- fill survey gaps (pull-push) so the model sits on continuous ground ----------
+function bilin(L, x, y) {
+  x = Math.min(L.W - 1, Math.max(0, x)); y = Math.min(L.H - 1, Math.max(0, y));
+  const i0 = Math.floor(x), j0 = Math.floor(y), i1 = Math.min(L.W - 1, i0 + 1), j1 = Math.min(L.H - 1, j0 + 1);
+  const u = x - i0, t = y - j0, v = L.v, W = L.W;
+  return (v[j0 * W + i0] * (1 - u) + v[j0 * W + i1] * u) * (1 - t) + (v[j1 * W + i0] * (1 - u) + v[j1 * W + i1] * u) * t;
+}
+const pyramid = [];
+{
+  let W = cols, Hh = rows, v = new Float32Array(N), w = new Float32Array(N);
+  for (const k of validCells) { v[k] = hAt(k); w[k] = 1; }
+  pyramid.push({ v, w, W, H: Hh });
+  while (W > 1 || Hh > 1) {
+    const W2 = Math.ceil(W / 2), H2 = Math.ceil(Hh / 2), v2 = new Float32Array(W2 * H2), w2 = new Float32Array(W2 * H2);
+    for (let j = 0; j < Hh; j++) for (let i = 0; i < W; i++) {
+      const k = j * W + i, k2 = (j >> 1) * W2 + (i >> 1);
+      v2[k2] += v[k] * w[k]; w2[k2] += w[k];
+    }
+    for (let k = 0; k < v2.length; k++) if (w2[k]) v2[k] /= w2[k];
+    pyramid.push({ v: v2, w: w2, W: W2, H: H2 });
+    v = v2; w = w2; W = W2; Hh = H2;
+  }
+  for (let l = pyramid.length - 2; l >= 0; l--) {
+    const c = pyramid[l + 1], f = pyramid[l];
+    for (let j = 0; j < f.H; j++) for (let i = 0; i < f.W; i++)
+      if (!f.w[j * f.W + i]) f.v[j * f.W + i] = bilin(c, (i + 0.5) / 2 - 0.5, (j + 0.5) / 2 - 0.5);
+  }
+}
+const hf = pyramid[0].v;
+const sampleL = (l, x, z) => {
+  const s = 2 ** l, fi = (x / width + 0.5) * (cols - 1), fj = (z / height + 0.5) * (rows - 1);
+  return bilin(pyramid[l], (fi - (s - 1) / 2) / s, (fj - (s - 1) / 2) / s);
+};
+// 1 where the orthophoto is reliable (2 cells away from any gap), 0 where generated ground shows
+const maskCell = new Uint8Array(N);
+{
+  const R = 2, W1 = cols + 1, I = new Int32Array(W1 * (rows + 1));
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++)
+    I[(j + 1) * W1 + i + 1] = (H[j * cols + i] ? 0 : 1) + I[j * W1 + i + 1] + I[(j + 1) * W1 + i] - I[j * W1 + i];
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+    const i0 = Math.max(0, i - R), i1 = Math.min(cols, i + R + 1), j0 = Math.max(0, j - R), j1 = Math.min(rows, j + R + 1);
+    maskCell[j * cols + i] = I[j1 * W1 + i1] - I[j0 * W1 + i1] - I[j1 * W1 + i0] + I[j0 * W1 + i0] ? 0 : 1;
+  }
+}
+
+// ---------- renderer / scene ----------
+const renderer = new THREE.WebGLRenderer({ antialias: CFG.aa, powerPreference: 'high-performance' });
+let pixelRatio = Math.min(devicePixelRatio, CFG.dpr);
+renderer.setPixelRatio(pixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0xb8c6d0, 2500, 7000);
+
+const camera = new THREE.PerspectiveCamera(innerWidth < innerHeight ? 55 : 40, innerWidth / innerHeight, 1, 60000);
+camera.position.set(-900, 750, 1350).multiplyScalar(innerWidth < innerHeight ? 1.35 : 1);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, relief * 0.5, 0);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.485;
+controls.minDistance = 40; controls.maxDistance = 3800;
+
+const hemi = new THREE.HemisphereLight(0xdfe8ff, 0x3a3226, 1.2);
+const sunLight = new THREE.DirectionalLight(0xfff2dc, 2.6);
+scene.add(hemi, sunLight);
+
+// sky with atmospheric scattering, plus an overcast dome that fades in with rain
+const sky = new Sky();
+sky.scale.setScalar(45000);
+scene.add(sky);
+const skyU = sky.material.uniforms;
+const overcast = new THREE.Mesh(new THREE.SphereGeometry(40000, 32, 16),
+  new THREE.MeshBasicMaterial({ color: 0x8a939b, side: THREE.BackSide, transparent: true, opacity: 0, fog: false, depthWrite: false }));
+overcast.renderOrder = -1;
+scene.add(overcast);
+
+// night: dark dome with a warm city glow at the horizon, stars, moonlight
+const nightDome = new THREE.Mesh(new THREE.SphereGeometry(41000, 32, 16), new THREE.ShaderMaterial({
+  uniforms: { uA: { value: 0 } },
+  vertexShader: `varying vec3 vD; void main() { vD = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `uniform float uA; varying vec3 vD;
+    void main() { float h = max(vD.y, 0.0);
+      vec3 c = mix(vec3(0.075, 0.06, 0.055), vec3(0.004, 0.008, 0.022), pow(h, 0.35));
+      gl_FragColor = vec4(c, uA * 0.97); }`,
+  side: THREE.BackSide, transparent: true, depthWrite: false, fog: false,
+}));
+nightDome.renderOrder = -2;
+scene.add(nightDome);
+const starPos = [];
+for (let n = 0; n < CFG.stars; n++) {
+  const y = 0.06 + Math.random() * 0.94, r = Math.sqrt(1 - y * y), th = Math.random() * Math.PI * 2;
+  starPos.push(Math.cos(th) * r * 30000, y * 30000, Math.sin(th) * r * 30000);
+}
+const sg = new THREE.BufferGeometry();
+sg.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
+const stars = new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xffffff, size: 1.6, sizeAttenuation: false, transparent: true, opacity: 0, fog: false, depthWrite: false }));
+stars.renderOrder = -1.5;
+scene.add(stars);
+const moon = new THREE.DirectionalLight(0x9db4ff, 0);
+moon.position.set(-1500, 2500, 800);
+scene.add(moon);
+
+// ---------- terrain mesh (x east, z south, y up in metres above zmin), decimated on light profile ----------
+const terrain = new THREE.Group();
+scene.add(terrain);
+const STOPS = [[0, [38, 84, 58]], [.25, [96, 132, 70]], [.5, [196, 176, 96]], [.75, [176, 104, 58]], [1, [240, 232, 220]]];
+function ramp(t) {
+  t = clamp01(t);
+  for (let k = 1; k < STOPS.length; k++) if (t <= STOPS[k][0]) {
+    const [t0, a] = STOPS[k - 1], [t1, b] = STOPS[k], f = (t - t0) / (t1 - t0);
+    return a.map((x, n) => (x + (b[n] - x) * f) / 255);
+  }
+  return STOPS.at(-1)[1].map(x => x / 255);
+}
+const step = CFG.stride;
+const pickIdx = n => { const a = []; for (let i = 0; i < n; i += step) a.push(i); if (a.at(-1) !== n - 1) a.push(n - 1); return a; };
+const CI = pickIdx(cols), RI = pickIdx(rows), MC = CI.length, MR = RI.length, MN = MC * MR;
+const pos = new Float32Array(MN * 3), uv = new Float32Array(MN * 2), col = new Float32Array(MN * 3);
+const aAcc = new Float32Array(MN), aPond = new Float32Array(MN), aDir = new Float32Array(MN * 2), aMask = new Float32Array(MN);
+for (let b = 0; b < MR; b++) for (let a = 0; a < MC; a++) {
+  const v = b * MC + a, k = RI[b] * cols + CI[a];
+  pos[v * 3] = cx(k); pos[v * 3 + 1] = hf[k]; pos[v * 3 + 2] = cz(k);
+  uv[v * 2] = CI[a] / (cols - 1); uv[v * 2 + 1] = 1 - RI[b] / (rows - 1);
+  col.set(ramp(hf[k] / relief), v * 3);
+  // strongest channel / deepest pond in the block, so thin streams survive decimation
+  let best = k, mask = 1, pd = 0;
+  for (let dj = 0; dj < step; dj++) for (let di = 0; di < step; di++) {
+    const kk = Math.min(rows - 1, RI[b] + dj) * cols + Math.min(cols - 1, CI[a] + di);
+    if (acc[kk] > acc[best]) best = kk;
+    if (!maskCell[kk]) mask = 0;
+    if (H[kk]) pd = Math.max(pd, pondCm[kk] / 100);
+  }
+  aMask[v] = mask; aPond[v] = pd;
+  if (!H[best]) continue;
+  aAcc[v] = Math.log(acc[best]) / logAccMax;
+  const r = rec[best];
+  if (r >= 0) { const ex = cx(r) - cx(best), ez = cz(r) - cz(best), l = Math.hypot(ex, ez); aDir[v * 2] = ex / l; aDir[v * 2 + 1] = ez / l; }
+}
+const idx = new Uint32Array((MC - 1) * (MR - 1) * 6);
+{
+  let n = 0;
+  for (let b = 0; b < MR - 1; b++) for (let a = 0; a < MC - 1; a++) {
+    const p = b * MC + a, q = p + 1, r = p + MC, s = r + 1;
+    idx[n++] = p; idx[n++] = r; idx[n++] = q; idx[n++] = q; idx[n++] = r; idx[n++] = s;
+  }
+}
+const g = new THREE.BufferGeometry();
+g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+g.setAttribute('aAcc', new THREE.BufferAttribute(aAcc, 1));
+g.setAttribute('aPond', new THREE.BufferAttribute(aPond, 1));
+g.setAttribute('aDir', new THREE.BufferAttribute(aDir, 2));
+g.setAttribute('aMask', new THREE.BufferAttribute(aMask, 1));
+g.setIndex(new THREE.BufferAttribute(idx, 1));
+g.computeVertexNormals();
+
+const tex = new THREE.Texture(img);
+tex.colorSpace = THREE.SRGBColorSpace;
+tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+tex.needsUpdate = true;
+
+const inSurvey = (x, z) => {
+  const i = Math.round((x / width + 0.5) * (cols - 1)), j = Math.round((z / height + 0.5) * (rows - 1));
+  return i >= 0 && j >= 0 && i < cols && j < rows && H[j * cols + i] > 0;
+};
+// street-light pools (red) and window spill (green) painted into a texture draped over the survey
+const LAMP_TEX = CFG.lampTex, lampCanvas = document.createElement('canvas');
+lampCanvas.width = lampCanvas.height = LAMP_TEX;
+{
+  const x = lampCanvas.getContext('2d');
+  x.fillStyle = '#000'; x.fillRect(0, 0, LAMP_TEX, LAMP_TEX);
+  x.globalCompositeOperation = 'lighter';
+  const blob = (px, py, r, stops) => {
+    const gr = x.createRadialGradient(px, py, 0, px, py, r);
+    for (const [o, c] of stops) gr.addColorStop(o, c);
+    x.fillStyle = gr; x.fillRect(px - r, py - r, 2 * r, 2 * r);
+  };
+  for (let n = 0; n < NL; n++) {
+    const a = [0.55, 0.75, 0.9][LK[n]], r = [11, 15, 19][LK[n]] / width * LAMP_TEX;
+    blob((LXZ[n * 2] / 20 / width + 0.5) * LAMP_TEX, (LXZ[n * 2 + 1] / 20 / height + 0.5) * LAMP_TEX, r,
+      [[0, `rgba(255,0,0,${a})`], [0.45, `rgba(255,0,0,${a * 0.35})`], [1, 'rgba(255,0,0,0)']]);
+  }
+  for (let n = 0; n < NH; n++)
+    blob((HXZ[n * 2] / 20 / width + 0.5) * LAMP_TEX, (HXZ[n * 2 + 1] / 20 / height + 0.5) * LAMP_TEX, 6 / width * LAMP_TEX,
+      [[0, 'rgba(0,255,0,0.22)'], [1, 'rgba(0,255,0,0)']]);
+}
+const lampTex = new THREE.CanvasTexture(lampCanvas);
+
+// wet soil, channels filling along the drainage network, ponding, generated ground and night lights
+const waterU = { uWet: { value: 0 }, uThresh: { value: 1.2 }, uTime: { value: 0 },
+  uNight: { value: 0 }, uLampTex: { value: lampTex }, uLampColor: { value: new THREE.Color(1.0, 0.78, 0.5) },
+  uHouseGlow: { value: 0 }, uHouseColor: { value: new THREE.Color(1.0, 0.7, 0.42) }, uDim: { value: new THREE.Vector2(width, height) } };
+function addWater(mat, ground) {
+  if (ground) mat.defines = { GROUND: '' };
+  mat.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, waterU);
+    sh.vertexShader = `attribute float aAcc; attribute float aPond; attribute vec2 aDir; attribute float aMask; uniform vec2 uDim; varying vec2 vLUv;
+      varying float vMask; varying float vAcc; varying float vPond; varying vec2 vDir; varying vec2 vXZ;\n` +
+      sh.vertexShader.replace('#include <begin_vertex>',
+        '#include <begin_vertex>\nvLUv = vec2(position.x / uDim.x + 0.5, 0.5 - position.z / uDim.y); vMask = aMask; vAcc = aAcc; vPond = aPond; vDir = aDir; vXZ = position.xz;');
+    sh.fragmentShader = `uniform float uWet; uniform float uThresh; uniform float uTime;
+      varying float vMask; varying vec2 vLUv; uniform float uNight; uniform sampler2D uLampTex; uniform vec3 uLampColor; uniform float uHouseGlow; uniform vec3 uHouseColor;
+      float gHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float gNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(gHash(i), gHash(i + vec2(1, 0)), f.x), mix(gHash(i + vec2(0, 1)), gHash(i + vec2(1, 1)), f.x), f.y); }
+      // generated land cover: patchy grass and woods with scattered built-up blocks
+      vec3 groundCol(vec2 p) {
+        float n = gNoise(p * 0.004) * 0.5 + gNoise(p * 0.02) * 0.3 + gNoise(p * 0.11) * 0.2;
+        float urb = smoothstep(0.52, 0.72, gNoise(p * 0.0022 + 7.3));
+        vec3 green = mix(vec3(0.035, 0.065, 0.025), vec3(0.12, 0.14, 0.065), n);
+        vec3 city = mix(vec3(0.17, 0.16, 0.15), vec3(0.30, 0.21, 0.16), gNoise(p * 0.08)) * (0.8 + 0.4 * gNoise(p * 0.5));
+        return mix(green, city, urb * 0.75);
+      }
+      varying float vAcc; varying float vPond; varying vec2 vDir; varying vec2 vXZ;\n` +
+      sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+        #ifdef GROUND
+          diffuseColor.rgb = groundCol(vXZ);
+        #elif defined(USE_MAP)
+          diffuseColor.rgb = mix(groundCol(vXZ), diffuseColor.rgb, smoothstep(0.2, 0.95, vMask));
+        #endif
+        diffuseColor.rgb *= 1.0 - 0.2 * uWet;
+        float ch = smoothstep(uThresh, uThresh + 0.05, vAcc);
+        float pond = smoothstep(0.03, 0.35, vPond) * smoothstep(0.25, 0.85, uWet);
+        float w = max(ch, pond);
+        vec2 dir = length(vDir) > 0.01 ? normalize(vDir) : vec2(0.0, 1.0);
+        float ripple = 0.5 + 0.5 * sin(dot(vXZ, dir) * 1.1 - uTime * 7.0 + vXZ.x * 0.05);
+        vec3 deep = vec3(0.10, 0.17, 0.20), lite = vec3(0.42, 0.56, 0.62);
+        vec3 water = mix(deep, lite, 0.25 + 0.45 * ripple * ch + 0.2 * pond);
+        diffuseColor.rgb = mix(diffuseColor.rgb, water, w * 0.88);
+      `).replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        if (uNight + uHouseGlow > 0.001 && all(greaterThanEqual(vLUv, vec2(0.0))) && all(lessThanEqual(vLUv, vec2(1.0)))) {
+          vec2 L = texture2D(uLampTex, vLUv).rg;
+          totalEmissiveRadiance += (diffuseColor.rgb * 2.2 + 0.03) * (uLampColor * L.x * uNight + uHouseColor * L.y * uHouseGlow);
+        }
+      `);
+  };
+  return mat;
+}
+const matFoto = addWater(new THREE.MeshLambertMaterial({ map: tex, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }));
+const matHipso = addWater(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }));
+const mesh = new THREE.Mesh(g, matFoto);
+terrain.add(mesh);
+
+// ---------- surrounding ground: survey edge blends into generated hills out to the horizon ----------
+const hash2 = (x, y) => { const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return n - Math.floor(n); };
+function vnoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi, u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  return lerp(lerp(hash2(xi, yi), hash2(xi + 1, yi), u), lerp(hash2(xi, yi + 1), hash2(xi + 1, yi + 1), u), v);
+}
+function fbm(x, y) {
+  let s = 0, a = 0.5, f = 1 / 1700;
+  for (let o = 0; o < 5; o++) { s += a * (vnoise(x * f + o * 17.3, y * f - o * 9.1) - 0.5); a *= 0.5; f *= 2.1; }
+  return s;
+}
+let base = 0;
+for (const k of validCells) base += hf[k];
+base /= nValid;
+// axes reuse the terrain mesh's own vertex positions inside, so the seam is watertight
+function axis(inner, outer) {
+  const a = inner.slice(); let st = inner[1] - inner[0], lo = inner[0], hi = inner.at(-1);
+  while (hi < outer) { st *= 1.2; lo -= st; hi += st; a.push(hi); a.unshift(lo); }
+  return a;
+}
+const ax = axis(CI.map(i => cx(i)), 16000), az = axis(RI.map(j => cz(j * cols)), 16000);
+const AW = ax.length, AH = az.length, iL = (AW - MC) / 2, jT = (AH - MR) / 2;
+const coarseL = Math.min(5, pyramid.length - 1);
+const apPos = new Float32Array(AW * AH * 3), apCol = new Float32Array(AW * AH * 3);
+for (let j = 0; j < AH; j++) for (let i = 0; i < AW; i++) {
+  const x = ax[i], z = az[j], n = j * AW + i, gi = i - iL, gj = j - jT;
+  let h;
+  if (gi >= 0 && gi < MC && gj >= 0 && gj < MR) h = hf[RI[gj] * cols + CI[gi]];
+  else {
+    const qx = Math.min(width / 2, Math.max(-width / 2, x)), qz = Math.min(height / 2, Math.max(-height / 2, z));
+    const d = Math.hypot(x - qx, z - qz);
+    const edge = lerp(sampleL(0, qx, qz), sampleL(coarseL, qx, qz), ss(d, 0, 250));
+    h = lerp(edge, base, ss(d, 0, 4500)) + fbm(x, z) * 150 * ss(d, 0, 1200);
+  }
+  apPos[n * 3] = x; apPos[n * 3 + 1] = h; apPos[n * 3 + 2] = z;
+  apCol.set(ramp(h / relief), n * 3);
+}
+const apIdx = [];
+for (let j = 0; j < AH - 1; j++) for (let i = 0; i < AW - 1; i++) {
+  const gi = i - iL, gj = j - jT;
+  if (gi >= 0 && gi < MC - 1 && gj >= 0 && gj < MR - 1) continue;   // covered by the terrain mesh
+  const a = j * AW + i, b = a + 1, c = a + AW, d = c + 1;
+  apIdx.push(a, c, b, b, c, d);
+}
+const ag = new THREE.BufferGeometry();
+ag.setAttribute('position', new THREE.BufferAttribute(apPos, 3));
+ag.setAttribute('color', new THREE.BufferAttribute(apCol, 3));
+ag.setIndex(new THREE.BufferAttribute(new Uint32Array(apIdx), 1));
+ag.computeVertexNormals();
+const apFoto = addWater(new THREE.MeshLambertMaterial({ color: 0xffffff }), true);
+const apHipso = addWater(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 }));
+const apron = new THREE.Mesh(ag, apFoto);
+terrain.add(apron);
+
+// ---------- street lights along the OSM road network ----------
+const lampPts = [], lampSeed = [], lampBig = [];
+for (let n = 0; n < NL; n++) {
+  const x = LXZ[n * 2] / 20, z = LXZ[n * 2 + 1] / 20;
+  lampPts.push(x, sampleL(0, x, z) + 7, z); lampSeed.push(Math.random() * 0.9); lampBig.push([0.7, 1, 1.25][LK[n]]);
+}
+const lg = new THREE.BufferGeometry();
+lg.setAttribute('position', new THREE.Float32BufferAttribute(lampPts, 3));
+lg.setAttribute('aSeed', new THREE.Float32BufferAttribute(lampSeed, 1));
+lg.setAttribute('aBig', new THREE.Float32BufferAttribute(lampBig, 1));
+const lampU = { uOn: { value: 0 }, uScale: { value: 5 }, uColor: { value: new THREE.Color(1.0, 0.8, 0.52) }, uFogNear: { value: 1 }, uFogFar: { value: 2 } };
+const lamps = new THREE.Points(lg, new THREE.ShaderMaterial({
+  uniforms: lampU,
+  // each lamp switches on at its own threshold, so streets light up gradually at dusk
+  vertexShader: `attribute float aSeed; attribute float aBig; uniform float uOn; uniform float uScale; uniform float uFogNear; uniform float uFogFar; varying float vA;
+    void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      float on = smoothstep(aSeed, aSeed + 0.1, uOn);
+      gl_PointSize = on * clamp(uScale * aBig * 900.0 / -mv.z, 1.5, 36.0);
+      vA = on * (1.0 - smoothstep(uFogNear, uFogFar, -mv.z));
+      gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `uniform vec3 uColor; varying float vA;
+    void main() { float d = length(gl_PointCoord - 0.5) * 2.0; if (d > 1.0 || vA <= 0.0) discard;
+      float core = smoothstep(0.3, 0.0, d), halo = pow(1.0 - d, 2.5) * 0.6;
+      gl_FragColor = vec4(uColor * (core * 1.5 + halo) + core * 0.4, (core + halo) * vA); }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+}));
+lamps.frustumCulled = false;
+terrain.add(lamps);
+
+// ---------- window lights in built-up blocks (roofs detected from the orthophoto) ----------
+const hPts = [], hSeed = [], hCol = [];
+for (let n = 0; n < NH; n++) {
+  const x = HXZ[n * 2] / 20, z = HXZ[n * 2 + 1] / 20;
+  hPts.push(x, sampleL(0, x, z) + 2.2 + (HK[n] & 3) * 2.8, z);
+  hSeed.push(Math.random()); hCol.push(HK[n] >> 2);
+}
+const hg = new THREE.BufferGeometry();
+hg.setAttribute('position', new THREE.Float32BufferAttribute(hPts, 3));
+hg.setAttribute('aSeed', new THREE.Float32BufferAttribute(hSeed, 1));
+hg.setAttribute('aCol', new THREE.Float32BufferAttribute(hCol, 1));
+const houseU = { uOn: { value: 0 }, uDark: { value: 0 }, uTime: { value: 0 }, uScale: { value: 3 }, uFogNear: { value: 1 }, uFogFar: { value: 2 } };
+const houseLights = new THREE.Points(hg, new THREE.ShaderMaterial({
+  uniforms: houseU,
+  vertexShader: `attribute float aSeed; attribute float aCol;
+    uniform float uOn; uniform float uDark; uniform float uTime; uniform float uScale; uniform float uFogNear; uniform float uFogFar;
+    varying float vA; varying vec3 vC;
+    void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      float on = step(aSeed, uOn) * uDark;
+      vC = aCol < 0.5 ? vec3(1.0, 0.72, 0.42) : aCol < 1.5 ? vec3(1.0, 0.9, 0.78) : aCol < 2.5 ? vec3(0.86, 0.93, 1.0) : vec3(0.55, 0.72, 1.0);
+      if (aCol > 2.5) on *= 0.55 + 0.45 * sin(uTime * 13.0 + aSeed * 50.0) * sin(uTime * 7.3 + aSeed * 21.0);
+      gl_PointSize = on > 0.0 ? clamp(uScale * 500.0 / -mv.z, 1.2, 14.0) : 0.0;
+      vA = on * (1.0 - smoothstep(uFogNear, uFogFar, -mv.z));
+      gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `varying float vA; varying vec3 vC;
+    void main() { float d = length(gl_PointCoord - 0.5) * 2.0; if (d > 1.0 || vA <= 0.0) discard;
+      float core = smoothstep(0.45, 0.0, d), halo = pow(1.0 - d, 3.0) * 0.35;
+      gl_FragColor = vec4(vC * (core * 1.3 + halo), (core + halo) * vA); }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+}));
+houseLights.frustumCulled = false;
+terrain.add(houseLights);
+// share of homes with lights on through the day: evening peak, few after midnight, early risers
+function houseFrac(h) {
+  const f = h >= 12
+    ? 0.15 + 0.75 * ss(h, 17, 19.5) - 0.6 * ss(h, 22, 24)
+    : 0.3 - 0.2 * ss(h, 0, 3) + 0.4 * ss(h, 4.5, 6) - 0.45 * ss(h, 7, 9);
+  return clamp01(f);
+}
+
+// contour lines are built on first use; every 5 m drawn brighter
+let contours = null;
+function buildContours() {
+  const n = M.nContour - M.lines.length, segs = new Float32Array(n * 6), segCol = new Float32Array(n * 6);
+  let o = 0;
+  for (const [start, count, elev] of M.lines) {
+    const y = elev - zmin + 0.4, c = Math.round(elev) % 5 === 0 ? [1, 0.86, 0.55] : [0.95, 0.95, 0.9];
+    for (let p = 0; p < count - 1; p++, o += 6) {
+      const s = (start + p) * 2;
+      segs.set([C[s] / 20, y, C[s + 1] / 20, C[s + 2] / 20, y, C[s + 3] / 20], o);
+      segCol.set([...c, ...c], o);
+    }
+  }
+  const cg = new THREE.BufferGeometry();
+  cg.setAttribute('position', new THREE.BufferAttribute(segs, 3));
+  cg.setAttribute('color', new THREE.BufferAttribute(segCol, 3));
+  contours = new THREE.LineSegments(cg, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55, depthWrite: false }));
+  terrain.add(contours);
+}
+
+// ---------- runoff particles: each one rides the drainage network to an outlet ----------
+const NP = CFG.particles;
+const pCell = new Int32Array(NP), pT = new Float32Array(NP), pAge = new Float32Array(NP), pLife = new Float32Array(NP);
+const pJx = new Float32Array(NP), pJz = new Float32Array(NP), pAlive = new Uint8Array(NP);
+const pPos = new Float32Array(NP * 3), pFade = new Float32Array(NP), pW = new Float32Array(NP);
+const pg = new THREE.BufferGeometry();
+pg.setAttribute('position', new THREE.BufferAttribute(pPos, 3).setUsage(THREE.DynamicDrawUsage));
+pg.setAttribute('aFade', new THREE.BufferAttribute(pFade, 1).setUsage(THREE.DynamicDrawUsage));
+pg.setAttribute('aW', new THREE.BufferAttribute(pW, 1).setUsage(THREE.DynamicDrawUsage));
+const runoff = new THREE.Points(pg, new THREE.ShaderMaterial({
+  uniforms: { uSize: { value: 2 }, uColor: { value: new THREE.Color(0.35, 0.62, 1.0) } },
+  // drops get wider where more water has gathered, so channels read as thick streams
+  vertexShader: `attribute float aFade; attribute float aW; uniform float uSize; varying float vF;
+    void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      gl_PointSize = aFade > 0.0 ? max(uSize * 0.8 * aW, uSize * aW * 700.0 / -mv.z) : 0.0;
+      gl_Position = projectionMatrix * mv; vF = aFade; }`,
+  fragmentShader: `uniform vec3 uColor; varying float vF;
+    void main() { float d = length(gl_PointCoord - 0.5); if (d > 0.5 || vF <= 0.0) discard;
+      gl_FragColor = vec4(uColor, (1.0 - d * 2.0) * 0.55 * vF); }`,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+}));
+runoff.frustumCulled = false;
+terrain.add(runoff);
+
+function spawn(p) {
+  pCell[p] = validCells[(Math.random() * nValid) | 0];
+  pT[p] = Math.random(); pAge[p] = 0; pLife[p] = 6 + Math.random() * 14;
+  pJx[p] = (Math.random() - 0.5) * dx; pJz[p] = (Math.random() - 0.5) * dz;
+  pAlive[p] = 1;
+}
+let runoffIdle = false;
+function stepRunoff(dt, spawnRate) {
+  let alive = 0;
+  for (let p = 0; p < NP; p++) {
+    if (!pAlive[p]) {
+      pFade[p] = 0;
+      if (Math.random() < spawnRate * dt) spawn(p); else continue;
+    }
+    pAge[p] += dt;
+    let k = pCell[p], r = rec[k];
+    // speed grows with slope and with the amount of water already in the channel
+    let guard = 0;
+    while (r >= 0 && guard++ < 12) {
+      const dist = Math.hypot(cx(r) - cx(k), cz(r) - cz(k));
+      const slope = Math.max(0, (fill[k] - fill[r]) / dist);
+      const v = Math.min(14, 0.8 + 18 * Math.sqrt(slope) + 0.35 * Math.log(acc[k]));
+      pT[p] += v * dt / dist;
+      if (pT[p] < 1) break;
+      pT[p] -= 1; k = r; r = rec[k];
+    }
+    pCell[p] = k;
+    if (r < 0 || pAge[p] > pLife[p]) { pAlive[p] = 0; pFade[p] = 0; continue; }
+    const t = pT[p], spread = 1 / (1 + 0.45 * Math.log(acc[k]));
+    pPos[p * 3] = lerp(cx(k), cx(r), t) + pJx[p] * spread;
+    pPos[p * 3 + 2] = lerp(cz(k), cz(r), t) + pJz[p] * spread;
+    pPos[p * 3 + 1] = lerp(fill[k], fill[r], t) + 0.35;
+    pFade[p] = Math.min(1, pAge[p] * 2, (pLife[p] - pAge[p]) * 1.5);
+    pW[p] = Math.min(3.2, 1 + 0.22 * Math.log(acc[k]));
+    alive++;
+  }
+  // skip GPU uploads once every drop has drained away
+  if (alive || !runoffIdle) {
+    pg.attributes.position.needsUpdate = pg.attributes.aFade.needsUpdate = pg.attributes.aW.needsUpdate = true;
+  }
+  runoffIdle = !alive;
+}
+
+// ---------- rain: streaks animated entirely on the GPU ----------
+const NR = CFG.rain, RAIN_BOX = 1900, RAIN_TOP = 1100;
+const rPos = new Float32Array(NR * 6), rEnd = new Float32Array(NR * 2);
+for (let i = 0; i < NR; i++) {
+  const x = (Math.random() - 0.5) * RAIN_BOX, z = (Math.random() - 0.5) * RAIN_BOX, ph = Math.random();
+  rPos.set([x, ph, z, x, ph, z], i * 6); rEnd[i * 2 + 1] = 1;
+}
+const rg = new THREE.BufferGeometry();
+rg.setAttribute('position', new THREE.BufferAttribute(rPos, 3));
+rg.setAttribute('aEnd', new THREE.BufferAttribute(rEnd, 1));
+const rainU = { uTime: { value: 0 }, uCenter: { value: new THREE.Vector3() }, uWind: { value: 0.3 }, uOpacity: { value: 0 } };
+const rain = new THREE.LineSegments(rg, new THREE.ShaderMaterial({
+  uniforms: rainU,
+  vertexShader: `attribute float aEnd; uniform float uTime; uniform vec3 uCenter; uniform float uWind; varying float vA;
+    void main() {
+      float top = ${RAIN_TOP.toFixed(1)}, fall = 95.0;
+      float y = top - mod(position.y * top + uTime * fall, top);
+      vec3 p = vec3(position.x + uCenter.x, y, position.z + uCenter.z);
+      p.x += uWind * (top - y) * 0.35;
+      p += aEnd * vec3(-uWind * 2.6, 7.0, 0.0);
+      vA = smoothstep(0.0, 60.0, y) * (0.55 + 0.45 * aEnd);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); }`,
+  fragmentShader: `uniform float uOpacity; varying float vA;
+    void main() { gl_FragColor = vec4(0.78, 0.85, 0.94, uOpacity * vA); }`,
+  transparent: true, depthWrite: false,
+}));
+rain.frustumCulled = false;
+scene.add(rain);
+
+// ---------- clouds: soft procedural puffs drifting with the wind ----------
+function puffTexture(seed) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 128;
+  const x = c.getContext('2d');
+  let s = seed; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 26; i++) {
+    const r = 18 + rnd() * 34, px = 40 + rnd() * 176, py = 50 + rnd() * 40 - (Math.abs(px - 128) < 50 ? 12 : 0);
+    const gr = x.createRadialGradient(px, py, 0, px, py, r);
+    gr.addColorStop(0, 'rgba(255,255,255,.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = gr; x.beginPath(); x.arc(px, py, r, 0, Math.PI * 2); x.fill();
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const puffs = [puffTexture(7), puffTexture(4211), puffTexture(99173), puffTexture(31337)];
+const clouds = [], CLOUD_R = 9000;
+for (let i = 0; i < CFG.clouds; i++) {
+  const m = new THREE.SpriteMaterial({ map: puffs[i % 4], transparent: true, depthWrite: false, fog: false, opacity: 0 });
+  const s = new THREE.Sprite(m);
+  const w = (900 + Math.random() * 1700) * (QUALITY === 'leve' ? 1.3 : 1);
+  s.scale.set(w, w * 0.5, 1);
+  s.position.set((Math.random() - 0.5) * 2 * CLOUD_R, 1500 + Math.random() * 900, (Math.random() - 0.5) * 2 * CLOUD_R);
+  s.userData.cover = Math.random();   // clouds appear in this order as cover grows
+  s.userData.shade = 0.85 + Math.random() * 0.15;
+  clouds.push(s); scene.add(s);
+}
+
+// ---------- state + UI ----------
+const S = { exag: 1.5, hour: 10, raining: false, intensity: 0.6, wind: 0.3, accel: 6, storm: 0, wet: 0, flash: 0, flow: true, lamps: true, houses: true };
+const applyExag = () => { terrain.scale.y = S.exag; };
+applyExag();
+const fmtHour = h => `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round((h % 1) * 60) % 60).padStart(2, '0')}`;
+const setHour = h => { S.hour = h; $('hora').value = h; $('horav').textContent = fmtHour(h); };
+const seg = (id, fn) => document.querySelectorAll(`#${id} button`).forEach(btn => btn.onclick = () => {
+  document.querySelectorAll(`#${id} button`).forEach(x => x.classList.toggle('on', x === btn));
+  fn(btn.dataset);
+});
+$('exag').oninput = e => { S.exag = +e.target.value; $('exagv').textContent = S.exag.toFixed(1) + '×'; applyExag(); };
+$('hora').oninput = e => setHour(+e.target.value);
+document.querySelectorAll('#presets button').forEach(btn => btn.onclick = () => setHour(+btn.dataset.h));
+$('intens').oninput = e => { S.intensity = +e.target.value; $('intensv').textContent = Math.round(S.intensity * 100) + '%'; };
+$('vento').oninput = e => { S.wind = +e.target.value; $('ventov').textContent = Math.round(S.wind * 100) + '%'; };
+$('acel').oninput = e => { S.accel = +e.target.value; $('acelv').textContent = S.accel + '×'; };
+$('esp').oninput = e => { runoff.material.uniforms.uSize.value = +e.target.value; $('espv').textContent = e.target.value + '×'; };
+$('escoa').onchange = e => { S.flow = e.target.checked; runoff.visible = S.flow; };
+$('curvas').onchange = e => { if (e.target.checked && !contours) buildContours(); if (contours) contours.visible = e.target.checked; };
+$('postes').onchange = e => { S.lamps = e.target.checked; };
+$('casas').onchange = e => { S.houses = e.target.checked; };
+seg('weather', d => { S.raining = d.w === 'chuva'; });
+seg('mode', d => {
+  const hipso = d.m === 'hipso';
+  mesh.material = hipso ? matHipso : matFoto;
+  apron.material = hipso ? apHipso : apFoto;
+  $('legend').style.display = hipso ? '' : 'none';
+});
+document.querySelector(`#quality button[data-q=${QUALITY}]`).classList.add('on');
+document.querySelectorAll('#quality button').forEach(btn => btn.onclick = () => {
+  if (btn.dataset.q === QUALITY) return;
+  const u = new URL(location.href); u.searchParams.set('q', btn.dataset.q); location.href = u;
+});
+document.querySelectorAll('.tabs button').forEach(btn => btn.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === btn));
+  document.querySelectorAll('.body section').forEach(s => { s.hidden = s.dataset.tab !== btn.dataset.tab; });
+});
+const panel = $('panel');
+if (innerWidth <= 760) panel.classList.add('collapsed');
+$('phead').onclick = () => panel.classList.toggle('collapsed');
+$('lgbar').style.background = 'linear-gradient(90deg,' + STOPS.map(([t, c]) => `rgb(${c}) ${t * 100}%`).join(',') + ')';
+$('lgmin').textContent = zmin.toFixed(0) + ' m';
+$('lgmax').textContent = zmax.toFixed(0) + ' m';
+
+// sun path for late spring at ~23.7°S: rises east, passes almost overhead to the north, sets west
+const sunDir = new THREE.Vector3();
+function sunFromHour(h) {
+  const a = (h - 6) / 12 * Math.PI, E = THREE.MathUtils.degToRad(82);
+  return sunDir.set(Math.cos(a), Math.sin(a) * Math.sin(E), -Math.sin(a) * Math.cos(E)).normalize();
+}
+const warm = new THREE.Color(0xffb46b), noon = new THREE.Color(0xfff4e2), grey = new THREE.Color(0xaab4bd);
+const fogClear = new THREE.Color(0xbcc9d3), fogStorm = new THREE.Color(0x949da4), fogDusk = new THREE.Color(0xd9b49a);
+const cloudSun = new THREE.Color(), tmpC = new THREE.Color(), cloudStorm = new THREE.Color(0.58, 0.61, 0.65), white = new THREE.Color(1, 1, 1);
+const fogNight = new THREE.Color(0x0b1019), cloudNight = new THREE.Color(0x1a1714);
+const overcastDay = new THREE.Color(0x8a939b), overcastNight = new THREE.Color(0x121417);
+let shownWet = -1;
+
+function updateWeather(dt, t) {
+  S.storm += ((S.raining ? 1 : 0) - S.storm) * Math.min(1, dt * 0.35);
+  const rainNow = S.raining ? S.intensity * clamp01(S.storm * 1.4 - 0.2) : 0;
+  // soil soaks while it rains, dries slowly afterwards
+  S.wet = clamp01(S.wet + (rainNow > 0 ? rainNow * 0.045 * S.accel / 6 : -0.012 * S.accel / 6) * dt);
+  waterU.uWet.value = S.wet;
+  waterU.uThresh.value = lerp(1.05, 0.32, Math.pow(S.wet, 0.8));
+  waterU.uTime.value = t;
+  const wetPct = Math.round(S.wet * 100);
+  if (wetPct !== shownWet) { shownWet = wetPct; $('wetv').textContent = wetPct + '%'; $('wetbar').style.width = wetPct + '%'; }
+
+  const sd = sunFromHour(S.hour), elev = Math.max(0, sd.y), st = S.storm;
+  const dayK = ss(sd.y, -0.08, 0.1), nightK = ss(-sd.y, -0.02, 0.25);
+  // lamps come on around sunset; a dark storm switches some on during the day
+  const dark = Math.max(ss(0.12 - sd.y, 0, 0.2), st * 0.45);
+  lampU.uOn.value = S.lamps ? dark : 0;
+  waterU.uNight.value = lampU.uOn.value * lerp(0.12, 1, 1 - dayK);
+  houseU.uOn.value = S.houses ? houseFrac(S.hour) : 0;
+  houseU.uDark.value = dark;
+  houseU.uTime.value = t;
+  waterU.uHouseGlow.value = S.houses ? houseFrac(S.hour) * dark * lerp(0.1, 1, 1 - dayK) : 0;
+  nightDome.material.uniforms.uA.value = nightK;
+  stars.material.opacity = nightK * (1 - st);
+  moon.intensity = 0.35 * nightK * (1 - 0.6 * st);
+
+  skyU.sunPosition.value.copy(sd);
+  skyU.turbidity.value = lerp(3, 14, st);
+  skyU.rayleigh.value = lerp(1.6, 0.6, st) + (1 - elev) * 1.2;
+  skyU.mieCoefficient.value = lerp(0.004, 0.02, st);
+  skyU.mieDirectionalG.value = 0.8;
+  overcast.material.opacity = st * 0.72;
+  overcast.material.color.copy(overcastDay).lerp(overcastNight, nightK);
+  renderer.toneMappingExposure = lerp(0.62, 0.58, st);
+
+  sunLight.position.copy(sd).multiplyScalar(3000);
+  const low = clamp01(1 - elev * 3.2);
+  sunLight.color.copy(noon).lerp(warm, low).lerp(grey, st);
+  sunLight.intensity = (0.4 + 2.6 * Math.min(1, elev * 2.5)) * (1 - 0.55 * st) * dayK;
+
+  // lightning in heavy rain
+  if (S.raining && st > 0.7 && S.intensity > 0.55 && Math.random() < dt * 0.12 * S.intensity) S.flash = 1;
+  S.flash = Math.max(0, S.flash - dt * 4.5);
+  const f = S.flash > 0 ? S.flash * (0.6 + 0.4 * Math.sin(t * 90)) : 0;
+  hemi.intensity = lerp(lerp(1.25, 1.15, st), 0.05, nightK) + f * 3;
+  $('flash').style.opacity = (f * 0.35).toFixed(3);
+
+  tmpC.copy(fogClear).lerp(fogDusk, low * 0.6).lerp(fogStorm, st);
+  scene.fog.color.copy(tmpC.lerp(fogNight, nightK));
+  scene.fog.near = lerp(2500, 300, st * (0.5 + 0.5 * S.intensity));
+  scene.fog.far = lerp(9000, 2600, st * (0.5 + 0.5 * S.intensity));
+  lampU.uFogNear.value = houseU.uFogNear.value = scene.fog.near;
+  lampU.uFogFar.value = houseU.uFogFar.value = scene.fog.far;
+
+  rainU.uTime.value = t;
+  rainU.uOpacity.value = rainNow > 0 ? clamp01(0.25 + 0.5 * S.intensity) * clamp01(S.storm * 1.4 - 0.2) * lerp(1, 0.4, nightK) : 0;
+  rainU.uWind.value = S.wind;
+  rainU.uCenter.value.set(controls.target.x, 0, controls.target.z);
+  rain.visible = rainU.uOpacity.value > 0.001;
+  rg.setDrawRange(0, Math.round(NR * S.intensity) * 2);
+
+  // clouds: thin fair-weather cover in sun, dense grey deck in rain
+  const cover = lerp(0.28, 1.0, st), drift = (8 + 60 * S.wind) * dt;
+  cloudSun.copy(noon).lerp(warm, low * 0.8);
+  for (const s of clouds) {
+    s.position.x += drift;
+    if (s.position.x > CLOUD_R) s.position.x -= 2 * CLOUD_R;
+    const on = clamp01((cover - s.userData.cover) * 6);
+    s.visible = on > 0;
+    if (!s.visible) continue;
+    s.material.opacity = on * lerp(0.75, 0.95, st);
+    tmpC.copy(cloudSun).multiplyScalar(s.userData.shade).lerp(cloudStorm, st).lerp(cloudNight, nightK);
+    if (f) tmpC.lerp(white, f * 0.7);
+    s.material.color.copy(tmpC);
+  }
+  return rainNow;
+}
+
+// ---------- readout: march the view ray over the heightfield ----------
+function sampleH(x, z) {
+  const fi = (x / width + 0.5) * (cols - 1), fj = (z / height + 0.5) * (rows - 1);
+  if (fi < 0 || fj < 0 || fi > cols - 1 || fj > rows - 1) return NaN;
+  const i = Math.min(cols - 2, fi | 0), j = Math.min(rows - 2, fj | 0), u = fi - i, v = fj - j;
+  const k = j * cols + i, a = hf[k], b = hf[k + 1], c = hf[k + cols], d = hf[k + cols + 1];
+  return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v;
+}
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), P = new THREE.Vector3();
+function pick(ev) {
+  ndc.set(ev.clientX / innerWidth * 2 - 1, -(ev.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const o = ray.ray.origin, d = ray.ray.direction;
+  for (let t = 0; t < 9000; t += 2) {
+    P.copy(d).multiplyScalar(t).add(o);
+    const h = sampleH(P.x, P.z) * S.exag;
+    if (!isNaN(h) && P.y <= h) return { x: P.x, z: P.z, h: h / S.exag };
+    if (P.y < -50) break;
+  }
+  return null;
+}
+function slopeAt(x, z) {
+  const e = 3, gx = (sampleH(x + e, z) - sampleH(x - e, z)) / (2 * e), gz = (sampleH(x, z + e) - sampleH(x, z - e)) / (2 * e);
+  const s = Math.atan(Math.hypot(gx, gz)) * 180 / Math.PI;
+  return isNaN(s) ? '—' : s.toFixed(0);
+}
+const fmtArea = a => a >= 10000 ? (a / 10000).toFixed(2) + ' ha' : Math.round(a).toLocaleString('pt-BR') + ' m²';
+const out = $('readout');
+const HINT = TOUCH
+  ? 'Toque no terreno para ver altitude e drenagem · 1 dedo gira · 2 dedos aproximam e movem'
+  : 'Passe o mouse sobre o terreno · Arrastar: girar · Botão direito: mover · Roda: zoom';
+$('rhint').textContent = HINT;
+if (TOUCH) { setTimeout(() => { if (!lastEv) out.classList.add('idle'); }, 7000); }
+let pending = null, lastEv = null, lastPick = 0, down = null;
+const cvs = renderer.domElement;
+cvs.addEventListener('pointermove', ev => { if (ev.pointerType === 'mouse') pending = ev; });
+// on touch, a short tap (not a drag) inspects the terrain
+cvs.addEventListener('pointerdown', ev => { down = { x: ev.clientX, y: ev.clientY, t: performance.now() }; });
+cvs.addEventListener('pointerup', ev => {
+  if (down && ev.pointerType !== 'mouse' && Math.hypot(ev.clientX - down.x, ev.clientY - down.y) < 10 && performance.now() - down.t < 350) {
+    pending = { clientX: ev.clientX, clientY: ev.clientY };
+    out.classList.remove('idle');
+    if (innerWidth <= 760) panel.classList.add('collapsed');
+  }
+  down = null;
+});
+function updateReadout(now) {
+  if (pending) { lastEv = pending; pending = null; }
+  else if (!lastEv || now - lastPick < 400) return;   // refresh slowly so wet/flow values stay live
+  lastPick = now;
+  const hit = pick(lastEv);
+  if (!hit) { out.innerHTML = `<div class="c">Fora do modelo</div>`; return; }
+  const lon = M.lon0 + hit.x / M.kx, lat = M.lat0 - hit.z / M.ky;
+  const i = Math.round((hit.x / width + 0.5) * (cols - 1)), j = Math.round((hit.z / height + 0.5) * (rows - 1));
+  const k = j * cols + i, area = acc[k] * cellArea;
+  const flowing = H[k] && Math.log(acc[k]) / logAccMax >= waterU.uThresh.value;
+  out.innerHTML = `<div class="z">${(hit.h + zmin).toFixed(1)} m${H[k] ? '' : '<small>estimado · fora do levantamento</small>'}</div>
+    <div class="c">${lat.toFixed(6)}°, ${lon.toFixed(6)}° · declividade ${slopeAt(hit.x, hit.z)}°</div>
+    ${H[k] ? `<div class="w">Área de contribuição: ${fmtArea(area)}${flowing ? ' · escoando' : ''}</div>` : ''}`;
+}
+
+const northg = $('northg');
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+$('lbar').style.width = '100%';
+$('loading').style.opacity = 0;
+setTimeout(() => $('loading').remove(), 450);
+
+// dynamic resolution: drop the pixel ratio if the device can't keep ~30 fps
+let ftSum = 0, ftN = 0;
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const raw = clock.getDelta(), dt = Math.min(0.05, raw), t = clock.elapsedTime;
+  ftSum += raw; ftN++;
+  if (ftSum > 2.5) {
+    if (ftSum / ftN > 1 / 28 && pixelRatio > 1) { pixelRatio = Math.max(1, pixelRatio - 0.25); renderer.setPixelRatio(pixelRatio); }
+    ftSum = ftN = 0;
+  }
+  controls.update();
+  const rainNow = updateWeather(dt, t);
+  // runoff keeps going for a while after the rain stops, while the soil drains
+  const spawnRate = Math.max(rainNow * 1.6, (S.raining ? 0 : S.wet * S.wet) * 0.5);
+  if (S.flow) stepRunoff(dt * S.accel, spawnRate / S.accel);
+  northg.setAttribute('transform', `rotate(${THREE.MathUtils.radToDeg(controls.getAzimuthalAngle())})`);
+  updateReadout(performance.now());
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>

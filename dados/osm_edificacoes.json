@@ -1,0 +1,154 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API 0.7.62.11 87bfad18",
+  "osm3s": {
+    "timestamp_osm_base": "2026-11-15T20:38:50Z",
+    "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+  },
+  "elements": [
+
+{
+  "type": "way",
+  "id": 781642298,
+  "bounds": {
+    "minlat": -23.6945605,
+    "minlon": -46.4949441,
+    "maxlat": -23.6942555,
+    "maxlon": -46.4946062
+  },
+  "nodes": [
+    8710163065,
+    8710163073,
+    8710163074,
+    10934940450,
+    7297734002,
+    7297734001,
+    8710163072,
+    8710163070,
+    8710163066,
+    8710163065
+  ],
+  "geometry": [
+    { "lat": -23.6942555, "lon": -46.4948322 },
+    { "lat": -23.6943529, "lon": -46.4948974 },
+    { "lat": -23.6943595, "lon": -46.4948857 },
+    { "lat": -23.6944297, "lon": -46.4949328 },
+    { "lat": -23.6944466, "lon": -46.4949441 },
+    { "lat": -23.6945605, "lon": -46.4947413 },
+    { "lat": -23.6944672, "lon": -46.4946788 },
+    { "lat": -23.6944736, "lon": -46.4946673 },
+    { "lat": -23.6943825, "lon": -46.4946062 },
+    { "lat": -23.6942555, "lon": -46.4948322 }
+  ],
+  "tags": {
+    "addr:postcode": "09131-190",
+    "addr:street": "Rua José de Alencar",
+    "addr:suburb": "Jardim Carla",
+    "alt_name": "UBS Jardim Carla",
+    "amenity": "clinic",
+    "building": "yes",
+    "healthcare": "clinic",
+    "healthcare:speciality": "general;gynaecology;paediatrics",
+    "name": "Unidade Básica de Saúde Jardim Carla",
+    "opening_hours": "Mo-Fr 07:00-21:00; Sa,Su,PH off",
+    "operator": "Secretaria de Saúde",
+    "operator:type": "government",
+    "phone": "+55 11 4435 1391",
+    "ref": "CNES-0008702"
+  }
+},
+{
+  "type": "way",
+  "id": 781642300,
+  "bounds": {
+    "minlat": -23.6948584,
+    "minlon": -46.4951640,
+    "maxlat": -23.6944913,
+    "maxlon": -46.4947187
+  },
+  "nodes": [
+    8710175657,
+    10934940449,
+    10934940447,
+    10934940445,
+    10934940444,
+    10934940446,
+    10934940448,
+    7297734004,
+    8710175654,
+    8710163067,
+    8710175655,
+    8710175658,
+    7297734011,
+    8710175653,
+    8710175656,
+    8710163068,
+    8710175657
+  ],
+  "geometry": [
+    { "lat": -23.6945265, "lon": -46.4950660 },
+    { "lat": -23.6946729, "lon": -46.4951640 },
+    { "lat": -23.6947239, "lon": -46.4950731 },
+    { "lat": -23.6947157, "lon": -46.4950675 },
+    { "lat": -23.6948340, "lon": -46.4948566 },
+    { "lat": -23.6948422, "lon": -46.4948621 },
+    { "lat": -23.6948584, "lon": -46.4948334 },
+    { "lat": -23.6947119, "lon": -46.4947354 },
+    { "lat": -23.6946960, "lon": -46.4947638 },
+    { "lat": -23.6946286, "lon": -46.4947187 },
+    { "lat": -23.6945897, "lon": -46.4947880 },
+    { "lat": -23.6946105, "lon": -46.4948019 },
+    { "lat": -23.6944913, "lon": -46.4950145 },
+    { "lat": -23.6945147, "lon": -46.4950301 },
+    { "lat": -23.6946340, "lon": -46.4948176 },
+    { "lat": -23.6946571, "lon": -46.4948331 },
+    { "lat": -23.6945265, "lon": -46.4950660 }
+  ],
+  "tags": {
+    "addr:postcode": "09131-190",
+    "addr:street": "Rua Lopes Trovão",
+    "addr:suburb": "Condomínio Maracanã",
+    "amenity": "childcare",
+    "building": "yes",
+    "email": "cmariaruth@santoandre.sp.gov.br",
+    "name": "Creche Professora Maria Ruth Koch Manfrin Croque",
+    "phone": "+55 11 4452 2901",
+    "ref": "INEP-35004123",
+    "source": "CADMEC 2017"
+  }
+},
+{
+  "type": "way",
+  "id": 940517223,
+  "bounds": {
+    "minlat": -23.6932145,
+    "minlon": -46.4923751,
+    "maxlat": -23.6930529,
+    "maxlon": -46.4922572
+  },
+  "nodes": [
+    8710421034,
+    8710421035,
+    8710421036,
+    8710421037,
+    8710421034
+  ],
+  "geometry": [
+    { "lat": -23.6930529, "lon": -46.4923413 },
+    { "lat": -23.6931981, "lon": -46.4923751 },
+    { "lat": -23.6932145, "lon": -46.4922910 },
+    { "lat": -23.6930693, "lon": -46.4922572 },
+    { "lat": -23.6930529, "lon": -46.4923413 }
+  ],
+  "tags": {
+    "addr:housenumber": "2800",
+    "addr:street": "Avenida Valentim Magalhães",
+    "addr:suburb": "Condomínio Maracanã",
+    "building": "yes",
+    "name": "Max Carnes",
+    "shop": "butcher"
+  }
+}
+
+  ]
+}
