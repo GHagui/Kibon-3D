@@ -90,6 +90,17 @@
   #toast[hidden] { display: none; }
   #toast button { padding: 5px 12px; border-radius: 7px; border: 0; background: #f0a46b; color: #2a120a; font-weight: 600; cursor: pointer; }
 
+  .glist { list-style: none; margin: 4px 0 8px; padding: 0; }
+  .glist li { display: flex; gap: 8px; align-items: baseline; padding: 6px 4px; border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--muted); }
+  .glist li:hover, .glist li.on { background: var(--hover); color: var(--text); }
+  .glist li b, .gl { flex: none; width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center;
+    background: #14b39a; color: #04201b; font-size: 11px; font-weight: 700; }
+  #glabels { position: fixed; inset: 0; pointer-events: none; z-index: 1; }
+  .gl { position: absolute; left: 0; top: 0; border: 2px solid rgba(255,255,255,.85); pointer-events: auto; cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0,0,0,.5); padding: 0; }
+  .gl.on { background: #f2d24d; }
+  #readout .g { color: #4fd1b8; font-size: 12px; }
+
   @media (max-width: 760px) {
     #toast { top: calc(88px + var(--safe-t)); }
     #panel { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 64dvh; border-radius: 16px 16px 0 0;
@@ -153,6 +164,19 @@
         <span class="ctl"><input type="range" id="acel" min="1" max="20" step="1" value="6"><span class="val" id="acelv">6×</span></span></div>
       <div class="row" style="margin-bottom:0"><label>Solo encharcado</label><span class="val" id="wetv">0%</span></div>
       <div class="meter"><div id="wetbar"></div></div>
+      <div class="row"><label for="verde">Áreas verdes para retenção</label><input type="checkbox" id="verde"></div>
+      <div id="greenbox" hidden>
+        <div class="row"><label for="pchuva">Chuva de projeto</label>
+          <span class="ctl"><input type="range" id="pchuva" min="10" max="120" step="5" value="50"><span class="val" id="pchuvav">50 mm</span></span></div>
+        <div class="row"><label for="pprof">Lâmina de retenção</label>
+          <span class="ctl"><input type="range" id="pprof" min="0.1" max="0.6" step="0.05" value="0.3"><span class="val" id="pprofv">30 cm</span></span></div>
+        <div class="stats">
+          <span>Enxurrada de toda a área</span><b id="gtot">—</b>
+          <span>Retido nas manchas</span><b id="gret">—</b>
+        </div>
+        <ol class="glist" id="glist"></ol>
+        <div class="note">Vegetação plana (&lt;10°) atravessada por enxurrada vinda de área impermeável. Estimativa simples: escoamento de 90% da chuva em telhado e asfalto e 20% em vegetação; cada mancha inteira retém a lâmina escolhida mais 15 mm infiltrados (é um teto teórico: na prática só parte de cada área vira jardim de chuva ou bacia); a água retida numa mancha não chega às de baixo. Não considera bueiros e galerias. Antes de usar uma área, confira que não fica acima de encosta instável (aba Risco).</div>
+      </div>
       <div class="note">Ligue a chuva para o solo encharcar: os canais de drenagem enchem aos poucos e as partículas seguem o caminho da água até os exutórios.</div>
     </section>
     <section data-tab="risco" hidden>
@@ -254,13 +278,13 @@ async function fetchBytes(url) {
 const gunzip = async bytes => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
 const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
 
-let M, gridRaw, ovRaw, img;
+let M, gridRaw, ovRaw, img, greenId;
 try {
-  const [meta, grid, ov, tex] = await Promise.all([
-    fetchBytes('assets/meta.json'), fetchBytes('assets/grid.bin.gz'), fetchBytes('assets/overlays.bin.gz'), fetchBytes('assets/' + CFG.tex)]);
+  const [meta, grid, ov, tex, green] = await Promise.all([
+    fetchBytes('assets/meta.json'), fetchBytes('assets/grid.bin.gz'), fetchBytes('assets/overlays.bin.gz'), fetchBytes('assets/' + CFG.tex), fetchBytes('assets/green.bin.gz')]);
   setStep('Descompactando…');
   M = JSON.parse(new TextDecoder().decode(meta));
-  [gridRaw, ovRaw] = await Promise.all([gunzip(grid), gunzip(ov)]);
+  [gridRaw, ovRaw, greenId] = await Promise.all([gunzip(grid), gunzip(ov), gunzip(green)]);
   img = new Image();
   img.src = URL.createObjectURL(new Blob([tex], { type: 'image/jpeg' }));
   await img.decode();
@@ -481,7 +505,7 @@ const pickIdx = n => { const a = []; for (let i = 0; i < n; i += step) a.push(i)
 const CI = pickIdx(cols), RI = pickIdx(rows), MC = CI.length, MR = RI.length, MN = MC * MR;
 const pos = new Float32Array(MN * 3), uv = new Float32Array(MN * 2), col = new Float32Array(MN * 3);
 const aAcc = new Float32Array(MN), aPond = new Float32Array(MN), aDir = new Float32Array(MN * 2), aMask = new Float32Array(MN);
-const aQcV = new Float32Array(MN), aMudV = new Float32Array(MN);
+const aQcV = new Float32Array(MN), aMudV = new Float32Array(MN), aGreen = new Float32Array(MN);
 for (let b = 0; b < MR; b++) for (let a = 0; a < MC; a++) {
   const v = b * MC + a, k = RI[b] * cols + CI[a];
   pos[v * 3] = cx(k); pos[v * 3 + 1] = hf[k]; pos[v * 3 + 2] = cz(k);
@@ -496,6 +520,10 @@ for (let b = 0; b < MR; b++) for (let a = 0; a < MC; a++) {
     if (H[kk]) pd = Math.max(pd, pondCm[kk] / 100);
   }
   aMask[v] = mask; aPond[v] = pd;
+  for (let dj = 0; dj < step && !aGreen[v]; dj++) for (let di = 0; di < step; di++) {
+    const gi = greenId[Math.min(rows - 1, RI[b] + dj) * cols + Math.min(cols - 1, CI[a] + di)];
+    if (gi) { aGreen[v] = gi; break; }
+  }
   if (!H[best]) continue;
   aAcc[v] = Math.log(acc[best]) / logAccMax;
   const r = rec[best];
@@ -519,6 +547,7 @@ g.setAttribute('aDir', new THREE.BufferAttribute(aDir, 2));
 g.setAttribute('aMask', new THREE.BufferAttribute(aMask, 1));
 g.setAttribute('aQc', new THREE.BufferAttribute(aQcV, 1));
 g.setAttribute('aMud', new THREE.BufferAttribute(aMudV, 1));
+g.setAttribute('aGreen', new THREE.BufferAttribute(aGreen, 1));
 // per vertex: lowest critical rainfall in its block, so small unstable spots survive decimation
 function fillQcAttr() {
   for (let b = 0; b < MR; b++) for (let a = 0; a < MC; a++) {
@@ -570,17 +599,17 @@ const lampTex = new THREE.CanvasTexture(lampCanvas);
 // wet soil, channels filling along the drainage network, ponding, generated ground and night lights
 const waterU = { uWet: { value: 0 }, uThresh: { value: 1.2 }, uTime: { value: 0 },
   uNight: { value: 0 }, uLampTex: { value: lampTex }, uLampColor: { value: new THREE.Color(1.0, 0.78, 0.5) },
-  uHouseGlow: { value: 0 }, uHouseColor: { value: new THREE.Color(1.0, 0.7, 0.42) }, uDim: { value: new THREE.Vector2(width, height) }, uRisk: { value: 0 }, uQEff: { value: 0 } };
+  uHouseGlow: { value: 0 }, uHouseColor: { value: new THREE.Color(1.0, 0.7, 0.42) }, uDim: { value: new THREE.Vector2(width, height) }, uRisk: { value: 0 }, uQEff: { value: 0 }, uGreen: { value: 0 }, uGreenSel: { value: 0 } };
 function addWater(mat, ground) {
   if (ground) mat.defines = { GROUND: '' };
   mat.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, waterU);
-    sh.vertexShader = `attribute float aAcc; attribute float aPond; attribute vec2 aDir; attribute float aMask; attribute float aQc; attribute float aMud; varying float vQc; varying float vMud; uniform vec2 uDim; varying vec2 vLUv;
+    sh.vertexShader = `attribute float aAcc; attribute float aPond; attribute vec2 aDir; attribute float aMask; attribute float aQc; attribute float aMud; attribute float aGreen; varying float vQc; varying float vMud; varying float vGreen; uniform vec2 uDim; varying vec2 vLUv;
       varying float vMask; varying float vAcc; varying float vPond; varying vec2 vDir; varying vec2 vXZ;\n` +
       sh.vertexShader.replace('#include <begin_vertex>',
-        '#include <begin_vertex>\nvLUv = vec2(position.x / uDim.x + 0.5, 0.5 - position.z / uDim.y); vMask = aMask; vQc = aQc; vMud = aMud; vAcc = aAcc; vPond = aPond; vDir = aDir; vXZ = position.xz;');
+        '#include <begin_vertex>\nvLUv = vec2(position.x / uDim.x + 0.5, 0.5 - position.z / uDim.y); vMask = aMask; vQc = aQc; vMud = aMud; vGreen = aGreen; vAcc = aAcc; vPond = aPond; vDir = aDir; vXZ = position.xz;');
     sh.fragmentShader = `uniform float uWet; uniform float uThresh; uniform float uTime;
-      varying float vMask; varying vec2 vLUv; varying float vQc; varying float vMud; uniform float uRisk; uniform float uQEff; uniform float uNight; uniform sampler2D uLampTex; uniform vec3 uLampColor; uniform float uHouseGlow; uniform vec3 uHouseColor;
+      varying float vMask; varying vec2 vLUv; varying float vQc; varying float vMud; varying float vGreen; uniform float uRisk; uniform float uQEff; uniform float uGreen; uniform float uGreenSel; uniform float uNight; uniform sampler2D uLampTex; uniform vec3 uLampColor; uniform float uHouseGlow; uniform vec3 uHouseColor;
       float gHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float gNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
         return mix(mix(gHash(i), gHash(i + vec2(1, 0)), f.x), mix(gHash(i + vec2(0, 1)), gHash(i + vec2(1, 1)), f.x), f.y); }
@@ -605,6 +634,10 @@ function addWater(mat, ground) {
             vec3 rc = vQc < 50.0 ? vec3(0.85, 0.12, 0.08) : vQc < 100.0 ? vec3(0.95, 0.42, 0.08) : vQc < 200.0 ? vec3(0.95, 0.75, 0.15) : vec3(0.45, 0.68, 0.25);
             diffuseColor.rgb = mix(diffuseColor.rgb * 0.75, rc, vQc < 400.0 ? 0.6 : 0.0);
             if (uQEff > 0.0 && vQc < uQEff) diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.05, 0.3), 0.35 + 0.35 * sin(uTime * 5.0));
+          }
+          if (uGreen > 0.5 && vGreen > 0.5) {
+            float sel = uGreenSel > 0.5 ? 1.0 - smoothstep(0.0, 0.5, abs(vGreen - uGreenSel)) : 0.0;
+            diffuseColor.rgb = mix(diffuseColor.rgb, mix(vec3(0.02, 0.62, 0.5), vec3(0.95, 0.8, 0.25), sel), 0.6 + 0.15 * sel * sin(uTime * 4.0));
           }
         #endif
         diffuseColor.rgb *= 1.0 - 0.2 * uWet;
@@ -1077,6 +1110,77 @@ $('lgbar').style.background = 'linear-gradient(90deg,' + STOPS.map(([t, c]) => `
 $('lgmin').textContent = zmin.toFixed(0) + ' m';
 $('lgmax').textContent = zmax.toFixed(0) + ' m';
 
+// ---------- green areas for stormwater retention ----------
+const GREEN = M.green;
+const NG_LABELS = Math.min(10, GREEN.length);
+let greenSel = 0;
+const fmtVol = v => v >= 1000 ? (v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' mil m³' : Math.round(v) + ' m³';
+// route the design storm through the patches, upstream first, so water held upstream isn't counted again downstream
+function greenCalc() {
+  const P = +$('pchuva').value / 1000, D = +$('pprof').value;
+  const upHeld = new Float64Array(GREEN.length);
+  let held = 0;
+  for (const i of GREEN.map((_, i) => i).sort((a, b) => GREEN[a].up - GREEN[b].up)) {
+    const gp = GREEN[i];
+    gp.runoff = P * (0.9 * gp.imp + 0.2 * (gp.up - gp.imp));
+    gp.inflow = Math.max(0, gp.runoff - upHeld[i]);
+    gp.held = Math.min(gp.inflow, gp.area * (D + 0.015));
+    held += gp.held;
+    if (gp.next) upHeld[gp.next - 1] += upHeld[i] + gp.held;
+  }
+  const total = P * (0.9 * M.impervArea + 0.2 * M.vegArea);
+  $('gtot').textContent = fmtVol(total);
+  $('gret').textContent = `${fmtVol(held)} (${Math.round(100 * held / total)}%)`;
+  $('glist').innerHTML = GREEN.slice(0, NG_LABELS).map((gp, i) =>
+    `<li data-id="${i + 1}" class="${greenSel === i + 1 ? 'on' : ''}"><b>${i + 1}</b><span>${fmtArea(gp.area)} · recebe ${fmtArea(gp.imp)} impermeáveis · retém ${fmtVol(gp.held)} (${Math.round(100 * gp.held / Math.max(1, gp.inflow))}% do que chega)</span></li>`).join('');
+  document.querySelectorAll('#glist li').forEach(li => li.onclick = () => selectGreen(+li.dataset.id, true));
+  if (greenSel) showGreen(greenSel);
+}
+function showGreen(id) {
+  const gp = GREEN[id - 1];
+  out.classList.remove('idle');
+  out.innerHTML = `<div class="z" style="color:#4fd1b8">Área verde ${id}<small>${fmtArea(gp.area)} · declividade ${gp.slope}°</small></div>
+    <div class="c">Drenam para ela ${fmtArea(gp.up)}, dos quais ${fmtArea(gp.imp)} impermeáveis</div>
+    <div class="g">Chuva de ${$('pchuva').value} mm: chegam ${fmtVol(gp.inflow)}, retém ${fmtVol(gp.held)} (${Math.round(100 * gp.held / Math.max(1, gp.inflow))}%)</div>`;
+  lastEv = null;
+}
+function selectGreen(id, fly) {
+  greenSel = id;
+  waterU.uGreenSel.value = id;
+  document.querySelectorAll('#glist li').forEach(li => li.classList.toggle('on', +li.dataset.id === id));
+  greenLabels.forEach((el, i) => el.classList.toggle('on', i + 1 === id));
+  showGreen(id);
+  if (fly) { const gp = GREEN[id - 1]; flyTo(gp.x, gp.z); if (innerWidth <= 760) panel.classList.add('collapsed'); }
+}
+const greenLabels = [];
+{
+  const box = document.createElement('div'); box.id = 'glabels'; box.hidden = true;
+  for (let i = 0; i < NG_LABELS; i++) {
+    const el = document.createElement('button'); el.className = 'gl'; el.textContent = i + 1;
+    el.onclick = () => selectGreen(i + 1, false);
+    box.appendChild(el); greenLabels.push(el);
+  }
+  document.body.appendChild(box);
+}
+const gv = new THREE.Vector3();
+function placeGreenLabels() {
+  for (let i = 0; i < NG_LABELS; i++) {
+    const gp = GREEN[i], el = greenLabels[i];
+    gv.set(gp.x, sampleH(gp.x, gp.z) * S.exag + 6, gp.z).project(camera);
+    const vis = gv.z < 1 && Math.abs(gv.x) < 1.05 && Math.abs(gv.y) < 1.05;
+    el.style.display = vis ? '' : 'none';
+    if (vis) el.style.transform = `translate(${((gv.x + 1) / 2 * innerWidth - 11).toFixed(1)}px, ${((1 - gv.y) / 2 * innerHeight - 11).toFixed(1)}px)`;
+  }
+}
+$('verde').onchange = e => {
+  const on = e.target.checked;
+  waterU.uGreen.value = on ? 1 : 0;
+  $('greenbox').hidden = !on; $('glabels').hidden = !on;
+  if (on) greenCalc(); else { greenSel = 0; waterU.uGreenSel.value = 0; }
+};
+$('pchuva').oninput = e => { $('pchuvav').textContent = e.target.value + ' mm'; greenCalc(); };
+$('pprof').oninput = e => { $('pprofv').textContent = Math.round(e.target.value * 100) + ' cm'; greenCalc(); };
+
 // sun path for late spring at ~23.7°S: rises east, passes almost overhead to the north, sets west
 const sunDir = new THREE.Vector3();
 function sunFromHour(h) {
@@ -1267,6 +1371,7 @@ renderer.setAnimationLoop(() => {
   if (S.flow) stepRunoff(dt * S.accel, spawnRate / S.accel);
   stepSlides(dt);
   northg.setAttribute('transform', `rotate(${THREE.MathUtils.radToDeg(controls.getAzimuthalAngle())})`);
+  if (waterU.uGreen.value) placeGreenLabels();
   updateReadout(performance.now());
   renderer.render(scene, camera);
 });

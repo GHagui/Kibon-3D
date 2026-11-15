@@ -10,6 +10,7 @@ Modelo 3D interativo do Kibon a partir do levantamento com drone: MDT, ortofoto 
 - **Clima:** céu com sol que segue a hora do dia, nuvens, chuva com vento e relâmpagos.
 - **Água:** rede de drenagem calculada sobre o MDT. Com chuva o solo encharca, os canais enchem aos poucos, as poças aparecem nas depressões e partículas mostram a água escorrendo até as saídas.
 - **Risco de deslizamento:** mapa de suscetibilidade (chuva crítica de cada ponto, modelo de encosta infinita SHALSTAB) e simulação: com a chuva o solo encharca, as áreas instáveis piscam, as encostas cedem e a lama desce pelos caminhos da água até parar. Profundidade do solo, coesão e atrito são ajustáveis. É um modelo de estudo com parâmetros genéricos e não substitui o mapeamento oficial de risco (Defesa Civil / IPT).
+- **Áreas verdes para retenção:** manchas de vegetação plana que recebem enxurrada de telhados e asfalto, com o volume que cada uma poderia segurar numa chuva de projeto (sem contar duas vezes a água já retida rio acima). É um potencial teórico que ignora bueiros e galerias.
 - **Noite:** iluminação pública ao longo das ruas do OpenStreetMap e luzes nas casas, que acendem e apagam conforme a hora.
 - **Inspeção:** passe o mouse (ou toque, no celular) para ver altitude, coordenadas, declividade, área de contribuição e fator de segurança da encosta.
 

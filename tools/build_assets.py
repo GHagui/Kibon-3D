@@ -6,6 +6,7 @@ Saídas:
   meta.json        extensão, alturas, índice das curvas, offsets dos binários
   grid.bin.gz      MDT 1024 px (uint16 cm, delta por linha) + direção de escoamento D8 + lâmina de poças
   overlays.bin.gz  curvas de nível, postes (OSM) e luzes das casas
+  green.bin.gz     manchas de vegetação plana que recebem enxurrada urbana (id por célula)
   orto-4k.jpg / orto-2k.jpg  ortofoto recortada no MDT
 """
 import sys, os, io, json, gzip, math, heapq
@@ -154,6 +155,57 @@ for gz in np.arange(-height / 2, height / 2, SP):
             hk.append(rng.choice(4, p=[0.55, 0.3, 0.1, 0.05]) * 4 + rng.choice(3, p=[0.5, 0.35, 0.15]))
 houses = np.round(np.array(hx) * 20).astype(np.int16)
 
+# ---------- green areas for stormwater retention ----------
+# flat vegetation (< 10°) crossed by runoff from impervious ground upstream; each patch also knows the
+# next patch downstream, so the viewer doesn't count water already held upstream twice
+from scipy import ndimage
+vimg = np.asarray(ortho.resize((cols, rows), Image.BILINEAR)).astype(np.int16)
+vr, vg, vb = vimg[..., 0], vimg[..., 1], vimg[..., 2]
+vveg = valid & ((2 * vg - vr - vb > 14) | ((vg > vr) & (vg > vb + 12)))
+imperv = valid & ~vveg
+dxm, dzm, cell = width / (cols - 1), height / (rows - 1), (width / (cols - 1)) * (height / (rows - 1))
+hs = np.where(valid, h, np.nan)
+gx = (np.roll(hs, -2, 1) - np.roll(hs, 2, 1)) / (4 * dxm); gz = (np.roll(hs, -2, 0) - np.roll(hs, 2, 0)) / (4 * dzm)
+slope = np.degrees(np.arctan(np.hypot(gx, gz)))
+d = dirc.ravel(); ids = np.arange(rows * cols); rec = np.full(rows * cols, -1)
+m = d != 255
+rec[m] = ids[m] + np.array([a for a, _ in NB])[d[m]] + np.array([c for _, c in NB])[d[m]] * cols
+up = valid.ravel().astype(float); upI = imperv.ravel().astype(float)
+indeg = np.bincount(rec[rec >= 0], minlength=rows * cols)
+stack = list(ids[valid.ravel() & (indeg == 0)])
+while stack:
+    c = stack.pop(); tgt = rec[c]
+    if tgt >= 0:
+        up[tgt] += up[c]; upI[tgt] += upI[c]; indeg[tgt] -= 1
+        if indeg[tgt] == 0: stack.append(tgt)
+up = up.reshape(rows, cols) * cell; upI = upI.reshape(rows, cols) * cell
+flat = ndimage.binary_opening(vveg & (slope < 10), iterations=1)
+lab, nlab = ndimage.label(ndimage.binary_closing(flat, iterations=2) & vveg & (slope < 12))
+li = np.arange(1, nlab + 1)
+areas = ndimage.sum(np.ones_like(lab), lab, li) * cell
+maxI = ndimage.maximum(upI, lab, li)
+sinks = ndimage.maximum_position(upI, lab, li)
+med = ndimage.median(np.nan_to_num(slope), lab, li)
+cent = ndimage.center_of_mass(np.ones_like(lab), lab, li)
+keep = [n for n in range(nlab) if areas[n] >= 250 and maxI[n] >= 1500]
+keep.sort(key=lambda n: -maxI[n]); keep = keep[:255]
+rank = {li[n]: r + 1 for r, n in enumerate(keep)}
+gid = np.zeros((rows, cols), np.uint8)
+for l, r_ in rank.items(): gid[lab == l] = r_
+green = []
+for n in keep:
+    sj, si = sinks[n]; cj, ci = cent[n]
+    nxt, c, steps = 0, sj * cols + si, 0
+    while steps < 20000:
+        c = rec[c]; steps += 1
+        if c < 0: break
+        g_ = gid.flat[c]
+        if g_ and g_ != rank[li[n]]: nxt = int(g_); break
+    green.append(dict(area=round(float(areas[n]), 1), slope=round(float(med[n]), 1), imp=round(float(maxI[n]), 1),
+                      up=round(float(up[sj, si]), 1), next=nxt,
+                      x=round((ci / (cols - 1) - 0.5) * width, 1), z=round((cj / (rows - 1) - 0.5) * height, 1)))
+open(f'{OUT}/green.bin.gz', 'wb').write(gzip.compress(gid.tobytes(), 9))
+
 parts = [contours.tobytes(), lamps.tobytes(), np.array(lk, np.uint8).tobytes(), houses.tobytes(), np.array(hk, np.uint8).tobytes()]
 offs, o = [], 0
 for p in parts: offs.append(o); o += len(p)
@@ -161,7 +213,8 @@ open(f'{OUT}/overlays.bin.gz', 'wb').write(gzip.compress(b''.join(parts), 9))
 
 meta = dict(cols=cols, rows=rows, width=width, height=height, zmin=zmin, zmax=zmax, lon0=lon0, lat0=lat0, kx=kx, ky=ky,
             lines=lines, nContour=len(contours) // 2, nLamps=len(lk), nHouses=len(hk),
+            green=green, impervArea=round(float(imperv.sum() * cell)), vegArea=round(float(vveg.sum() * cell)),
             overlays=dict(contours=offs[0], lamps=offs[1], lampKind=offs[2], houses=offs[3], houseKind=offs[4]))
 json.dump(meta, open(f'{OUT}/meta.json', 'w'), separators=(',', ':'))
 for f in sorted(os.listdir(OUT)): print(f, os.path.getsize(f'{OUT}/{f}') // 1024, 'KB')
-print('lamps', len(lk), 'houses', len(hk), 'lines', len(lines))
+print('lamps', len(lk), 'houses', len(hk), 'lines', len(lines), 'green patches', len(green))

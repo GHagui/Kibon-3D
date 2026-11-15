@@ -3,3 +3,6 @@ __pycache__/
 .venv/
 _site/
 *.aux.xml
+Thumbs.db
+desktop.ini
+.DS_Store

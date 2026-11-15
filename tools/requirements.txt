@@ -3,3 +3,4 @@ rasterio
 pyshp
 pyproj
 pillow
+scipy
