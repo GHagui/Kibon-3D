@@ -175,7 +175,7 @@
         <span class="ctl"><input type="range" id="coesao" min="0" max="15" step="0.5" value="5"><span class="val" id="coesaov">5 kPa</span></span></div>
       <div class="row"><label for="atrito">Ângulo de atrito</label>
         <span class="ctl"><input type="range" id="atrito" min="20" max="40" step="1" value="32"><span class="val" id="atritov">32°</span></span></div>
-      <div class="note">Modelo simplificado de encosta infinita (SHALSTAB): compara a chuva com a resistência do solo em cada ponto, usando declividade e área de drenagem do MDT e parâmetros genéricos de solo. Serve para estudo; não substitui o mapeamento de risco oficial (Defesa Civil / IPT).</div>
+      <div class="note">Modelo simplificado de encosta infinita (SHALSTAB): compara a chuva com a resistência do solo em cada ponto, usando declividade (medida em ~5 m) e área de drenagem do MDT e parâmetros genéricos de solo. O alcance da lama depende do volume (Corominas, 1996). Serve para estudo; não substitui o mapeamento de risco oficial (Defesa Civil / IPT).</div>
     </section>
     <section data-tab="terreno" hidden>
       <div class="row"><label>Superfície</label>
@@ -362,9 +362,11 @@ const maskCell = new Uint8Array(N);
 const RP = { z: 1.5, c: 5, phi: 32 };          // soil depth (m), cohesion incl. roots (kPa), friction angle (°)
 const T_SOIL = 15, G_SOIL = 18, G_W = 9.81;    // transmissivity (m²/day), unit weights (kN/m³)
 const tanS = new Float32Array(N), qc = new Float32Array(N).fill(1e4), failed = new Uint8Array(N);
+// slope measured across ~5 m, so steps, wall edges and cut lips in the 1.3 m DEM don't read as failing slopes
+const SLOPE_R = 2;
 for (const k of validCells) {
   const i = k % cols, j = (k / cols) | 0;
-  const i0 = Math.max(0, i - 1), i1 = Math.min(cols - 1, i + 1), j0 = Math.max(0, j - 1), j1 = Math.min(rows - 1, j + 1);
+  const i0 = Math.max(0, i - SLOPE_R), i1 = Math.min(cols - 1, i + SLOPE_R), j0 = Math.max(0, j - SLOPE_R), j1 = Math.min(rows - 1, j + SLOPE_R);
   const gx = (hf[j * cols + i1] - hf[j * cols + i0]) / ((i1 - i0) * dx), gz = (hf[j1 * cols + i] - hf[j0 * cols + i]) / ((j1 - j0) * dz);
   tanS[k] = Math.hypot(gx, gz);
 }
@@ -843,8 +845,8 @@ const qRain = () => (20 + 180 * S.intensity) * S.wet;     // recharge felt by th
 const vOf = k => Math.min(MR - 1, Math.round(((k / cols) | 0) / step)) * MC + Math.min(MC - 1, Math.round((k % cols) / step));
 let mudDirty = false;
 const setMud = (k, v) => { const vi = vOf(k); if (aMudV[vi] < v) { aMudV[vi] = v; mudDirty = true; } };
-const ND = QUALITY === 'leve' ? 2500 : 6000, MU = Math.tan(14 * Math.PI / 180);   // basal friction of the debris
-const dCell = new Int32Array(ND), dT = new Float32Array(ND), dV = new Float32Array(ND), dStop = new Float32Array(ND);
+const ND = QUALITY === 'leve' ? 2500 : 6000;
+const dCell = new Int32Array(ND), dT = new Float32Array(ND), dV = new Float32Array(ND), dStop = new Float32Array(ND), dMu = new Float32Array(ND);
 const dState = new Uint8Array(ND), dJx = new Float32Array(ND), dJz = new Float32Array(ND);   // 0 free, 1 moving, 2 deposited
 const dPos = new Float32Array(ND * 3), dFade = new Float32Array(ND);
 let dNext = 0, debrisActive = false;
@@ -890,13 +892,16 @@ function triggerSlide(s) {
   }
   if (!cells.length) return false;
   for (const k of cells) { failed[k] = 1; setMud(k, 1); aQcV[vOf(k)] = 1e4; }
+  const vol = cells.length * cellArea * RP.z;
+  // runout from volume: reach angle tan(a) = 0.97 V^-0.105 (Corominas, 1996), about 30° for a few hundred m³;
+  // a sliding block with that friction stops where its energy line meets the ground
+  const mu = Math.min(0.9, Math.max(0.2, 0.97 * Math.pow(vol, -0.105)));
   const n = Math.min(700, cells.length * 5);
   for (let m = 0; m < n; m++) {
     const p = dNext; dNext = (dNext + 1) % ND;
-    dCell[p] = cells[(Math.random() * cells.length) | 0]; dT[p] = Math.random(); dV[p] = 0.5 + Math.random();
-    dState[p] = 1; dStop[p] = 0; dJx[p] = (Math.random() - 0.5) * dx * 1.6; dJz[p] = (Math.random() - 0.5) * dz * 1.6;
+    dCell[p] = cells[(Math.random() * cells.length) | 0]; dT[p] = Math.random(); dV[p] = 0.3 + Math.random() * 0.5;
+    dState[p] = 1; dStop[p] = 0; dMu[p] = mu; dJx[p] = (Math.random() - 0.5) * dx * 1.6; dJz[p] = (Math.random() - 0.5) * dz * 1.6;
   }
-  const vol = cells.length * cellArea * RP.z;
   S.slideCount++; S.slideVol += vol;
   lastSlide = { x: cx(s), z: cz(s) };
   $('nslides').textContent = S.slideCount;
@@ -927,7 +932,7 @@ function stepSlides(dt) {
       else {
         // sliding block on the local slope: gravity minus basal friction
         const run = Math.hypot(cx(r) - cx(k), cz(r) - cz(k)), drop = hf[k] - hf[r];
-        dV[p] = Math.min(16, dV[p] + 9.81 * (drop - MU * run) / Math.hypot(run, drop) * ddt);
+        dV[p] = Math.min(16, dV[p] + 9.81 * (drop - dMu[p] * run) / Math.hypot(run, drop) * ddt);
         if (dV[p] <= 0) dState[p] = 2;
         else {
           dT[p] += dV[p] * ddt / run;
