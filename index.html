@@ -76,7 +76,22 @@
   #loading .bar div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
   #loading .step { color: var(--muted); font-size: 12px; }
 
+  .btn { flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(226,176,74,.4); background: var(--accent-bg); color: var(--accent); cursor: pointer; }
+  .btn.ghost { flex: none; background: transparent; border-color: var(--line); color: var(--muted); }
+  .stats { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; margin: 8px 0 10px; font-variant-numeric: tabular-nums; }
+  .stats span { color: var(--muted); } .stats b { font-weight: 600; text-align: right; }
+  .rleg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: 2px 0 8px; font-size: 11px; color: var(--muted); text-align: center; }
+  .rleg i { display: block; height: 8px; border-radius: 2px; margin-bottom: 3px; }
+  .rleg .lg-l { grid-column: 1 / -1; justify-content: center; margin: 0; }
+  #readout .r { color: #f0a46b; font-size: 12px; }
+  #toast { position: fixed; top: calc(16px + var(--safe-t)); left: 50%; transform: translateX(-50%); z-index: 3; white-space: nowrap;
+    display: flex; align-items: center; gap: 10px; padding: 7px 7px 7px 14px; border-radius: 10px;
+    background: rgba(58, 22, 14, .92); border: 1px solid rgba(240, 120, 80, .5); }
+  #toast[hidden] { display: none; }
+  #toast button { padding: 5px 12px; border-radius: 7px; border: 0; background: #f0a46b; color: #2a120a; font-weight: 600; cursor: pointer; }
+
   @media (max-width: 760px) {
+    #toast { top: calc(88px + var(--safe-t)); }
     #panel { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 64dvh; border-radius: 16px 16px 0 0;
       border-left: 0; border-right: 0; border-bottom: 0; padding-bottom: var(--safe-b); }
     #panel header { padding: 6px 16px 8px; flex-wrap: wrap; }
@@ -104,6 +119,7 @@
   <div class="step" id="lstep">Baixando dados…</div>
 </div></div>
 <div id="flash"></div>
+<div id="toast" hidden></div>
 
 <div id="panel">
   <header id="phead">
@@ -118,7 +134,7 @@
       <div class="seg" id="weather"><button data-w="sol" class="on">Sol</button><button data-w="chuva">Chuva</button></div></div>
   </div>
   <nav class="tabs">
-    <button data-tab="clima" class="on">Clima</button><button data-tab="agua">Água</button><button data-tab="terreno">Terreno</button>
+    <button data-tab="clima" class="on">Clima</button><button data-tab="agua">Água</button><button data-tab="risco">Risco</button><button data-tab="terreno">Terreno</button>
   </nav>
   <div class="body">
     <section data-tab="clima">
@@ -138,6 +154,28 @@
       <div class="row" style="margin-bottom:0"><label>Solo encharcado</label><span class="val" id="wetv">0%</span></div>
       <div class="meter"><div id="wetbar"></div></div>
       <div class="note">Ligue a chuva para o solo encharcar: os canais de drenagem enchem aos poucos e as partículas seguem o caminho da água até os exutórios.</div>
+    </section>
+    <section data-tab="risco" hidden>
+      <div class="row"><label for="mapa">Mapa de suscetibilidade</label><input type="checkbox" id="mapa"></div>
+      <div class="rleg">
+        <span><i style="background:#e0402e"></i>&lt; 50</span><span><i style="background:#f28a2e"></i>50–100</span>
+        <span><i style="background:#f2d24d"></i>100–200</span><span><i style="background:#9cc26b"></i>200–400</span>
+        <div class="lg-l">chuva crítica (mm/dia) · piscando = instável agora</div>
+      </div>
+      <div class="row"><label for="slides">Deslizamentos na chuva</label><input type="checkbox" id="slides" checked></div>
+      <div class="stats">
+        <span>Chuva sentida pelo solo</span><b id="qv">0 mm/dia</b>
+        <span>Área instável agora</span><b id="unst">0 m²</b>
+        <span>Deslizamentos</span><b id="nslides">0</b>
+      </div>
+      <div class="row" style="gap:8px"><button class="btn" id="provocar">Provocar deslizamento</button><button class="btn ghost" id="limpar">Limpar</button></div>
+      <div class="row"><label for="solo">Profundidade do solo</label>
+        <span class="ctl"><input type="range" id="solo" min="0.5" max="3" step="0.1" value="1.5"><span class="val" id="solov">1.5 m</span></span></div>
+      <div class="row"><label for="coesao">Coesão</label>
+        <span class="ctl"><input type="range" id="coesao" min="0" max="15" step="0.5" value="5"><span class="val" id="coesaov">5 kPa</span></span></div>
+      <div class="row"><label for="atrito">Ângulo de atrito</label>
+        <span class="ctl"><input type="range" id="atrito" min="20" max="40" step="1" value="32"><span class="val" id="atritov">32°</span></span></div>
+      <div class="note">Modelo simplificado de encosta infinita (SHALSTAB): compara a chuva com a resistência do solo em cada ponto, usando declividade e área de drenagem do MDT e parâmetros genéricos de solo. Serve para estudo; não substitui o mapeamento de risco oficial (Defesa Civil / IPT).</div>
     </section>
     <section data-tab="terreno" hidden>
       <div class="row"><label>Superfície</label>
@@ -320,6 +358,50 @@ const maskCell = new Uint8Array(N);
   }
 }
 
+// ---------- landslide susceptibility: infinite slope with steady-state wetness (SHALSTAB) ----------
+const RP = { z: 1.5, c: 5, phi: 32 };          // soil depth (m), cohesion incl. roots (kPa), friction angle (°)
+const T_SOIL = 15, G_SOIL = 18, G_W = 9.81;    // transmissivity (m²/day), unit weights (kN/m³)
+const tanS = new Float32Array(N), qc = new Float32Array(N).fill(1e4), failed = new Uint8Array(N);
+for (const k of validCells) {
+  const i = k % cols, j = (k / cols) | 0;
+  const i0 = Math.max(0, i - 1), i1 = Math.min(cols - 1, i + 1), j0 = Math.max(0, j - 1), j1 = Math.min(rows - 1, j + 1);
+  const gx = (hf[j * cols + i1] - hf[j * cols + i0]) / ((i1 - i0) * dx), gz = (hf[j1 * cols + i] - hf[j0 * cols + i]) / ((j1 - j0) * dz);
+  tanS[k] = Math.hypot(gx, gz);
+}
+const cellB = (dx + dz) / 2;
+// critical rainfall (mm/day) that brings the factor of safety to 1; 0 = unstable even dry, 1e4 = never fails
+function computeQc() {
+  const tphi = Math.tan(RP.phi * Math.PI / 180);
+  for (const k of validCells) {
+    const t = tanS[k];
+    if (t < 0.05) { qc[k] = 1e4; continue; }
+    const th = Math.atan(t), sn = Math.sin(th), cs = Math.cos(th);
+    const cp = RP.c / (G_SOIL * RP.z * sn * cs);
+    const wc = (G_SOIL / G_W) * (1 - (1 - cp) * t / tphi);
+    qc[k] = wc >= 1 ? 1e4 : wc <= 0 ? 0 : wc * T_SOIL * cellB * sn / (acc[k] * cellArea) * 1000;
+  }
+}
+function factorOfSafety(k, q) {
+  const t = tanS[k];
+  if (t < 0.05) return Infinity;
+  const th = Math.atan(t), sn = Math.sin(th), cs = Math.cos(th);
+  const w = Math.min(1, q / 1000 * acc[k] * cellArea / (T_SOIL * cellB * sn));
+  return RP.c / (G_SOIL * RP.z * sn * cs) + (1 - w * G_W / G_SOIL) * Math.tan(RP.phi * Math.PI / 180) / t;
+}
+// cells bucketed by critical rainfall, so everything unstable at rainfall q is a prefix of qOrder
+const QBINS = 400, qCum = new Int32Array(QBINS + 2);
+let qOrder = new Int32Array(0);
+function rebuildBins() {
+  const cnt = new Int32Array(QBINS + 1);
+  for (const k of validCells) if (qc[k] < QBINS) cnt[qc[k] | 0]++;
+  for (let b = 0; b <= QBINS; b++) qCum[b + 1] = qCum[b] + cnt[b];
+  qOrder = new Int32Array(qCum[QBINS + 1]);
+  const at = qCum.slice(0, QBINS + 1);
+  for (const k of validCells) if (qc[k] < QBINS) qOrder[at[qc[k] | 0]++] = k;
+}
+const unstableCount = q => q <= 0 ? 0 : qCum[Math.min(QBINS + 1, Math.ceil(q))];
+computeQc(); rebuildBins();
+
 // ---------- renderer / scene ----------
 const renderer = new THREE.WebGLRenderer({ antialias: CFG.aa, powerPreference: 'high-performance' });
 let pixelRatio = Math.min(devicePixelRatio, CFG.dpr);
@@ -397,6 +479,7 @@ const pickIdx = n => { const a = []; for (let i = 0; i < n; i += step) a.push(i)
 const CI = pickIdx(cols), RI = pickIdx(rows), MC = CI.length, MR = RI.length, MN = MC * MR;
 const pos = new Float32Array(MN * 3), uv = new Float32Array(MN * 2), col = new Float32Array(MN * 3);
 const aAcc = new Float32Array(MN), aPond = new Float32Array(MN), aDir = new Float32Array(MN * 2), aMask = new Float32Array(MN);
+const aQcV = new Float32Array(MN), aMudV = new Float32Array(MN);
 for (let b = 0; b < MR; b++) for (let a = 0; a < MC; a++) {
   const v = b * MC + a, k = RI[b] * cols + CI[a];
   pos[v * 3] = cx(k); pos[v * 3 + 1] = hf[k]; pos[v * 3 + 2] = cz(k);
@@ -432,6 +515,21 @@ g.setAttribute('aAcc', new THREE.BufferAttribute(aAcc, 1));
 g.setAttribute('aPond', new THREE.BufferAttribute(aPond, 1));
 g.setAttribute('aDir', new THREE.BufferAttribute(aDir, 2));
 g.setAttribute('aMask', new THREE.BufferAttribute(aMask, 1));
+g.setAttribute('aQc', new THREE.BufferAttribute(aQcV, 1));
+g.setAttribute('aMud', new THREE.BufferAttribute(aMudV, 1));
+// per vertex: lowest critical rainfall in its block, so small unstable spots survive decimation
+function fillQcAttr() {
+  for (let b = 0; b < MR; b++) for (let a = 0; a < MC; a++) {
+    let m = 1e4;
+    for (let dj = 0; dj < step; dj++) for (let di = 0; di < step; di++) {
+      const kk = Math.min(rows - 1, RI[b] + dj) * cols + Math.min(cols - 1, CI[a] + di);
+      if (H[kk] && !failed[kk] && qc[kk] < m) m = qc[kk];
+    }
+    aQcV[b * MC + a] = m;
+  }
+  g.attributes.aQc.needsUpdate = true;
+}
+fillQcAttr();
 g.setIndex(new THREE.BufferAttribute(idx, 1));
 g.computeVertexNormals();
 
@@ -470,17 +568,17 @@ const lampTex = new THREE.CanvasTexture(lampCanvas);
 // wet soil, channels filling along the drainage network, ponding, generated ground and night lights
 const waterU = { uWet: { value: 0 }, uThresh: { value: 1.2 }, uTime: { value: 0 },
   uNight: { value: 0 }, uLampTex: { value: lampTex }, uLampColor: { value: new THREE.Color(1.0, 0.78, 0.5) },
-  uHouseGlow: { value: 0 }, uHouseColor: { value: new THREE.Color(1.0, 0.7, 0.42) }, uDim: { value: new THREE.Vector2(width, height) } };
+  uHouseGlow: { value: 0 }, uHouseColor: { value: new THREE.Color(1.0, 0.7, 0.42) }, uDim: { value: new THREE.Vector2(width, height) }, uRisk: { value: 0 }, uQEff: { value: 0 } };
 function addWater(mat, ground) {
   if (ground) mat.defines = { GROUND: '' };
   mat.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, waterU);
-    sh.vertexShader = `attribute float aAcc; attribute float aPond; attribute vec2 aDir; attribute float aMask; uniform vec2 uDim; varying vec2 vLUv;
+    sh.vertexShader = `attribute float aAcc; attribute float aPond; attribute vec2 aDir; attribute float aMask; attribute float aQc; attribute float aMud; varying float vQc; varying float vMud; uniform vec2 uDim; varying vec2 vLUv;
       varying float vMask; varying float vAcc; varying float vPond; varying vec2 vDir; varying vec2 vXZ;\n` +
       sh.vertexShader.replace('#include <begin_vertex>',
-        '#include <begin_vertex>\nvLUv = vec2(position.x / uDim.x + 0.5, 0.5 - position.z / uDim.y); vMask = aMask; vAcc = aAcc; vPond = aPond; vDir = aDir; vXZ = position.xz;');
+        '#include <begin_vertex>\nvLUv = vec2(position.x / uDim.x + 0.5, 0.5 - position.z / uDim.y); vMask = aMask; vQc = aQc; vMud = aMud; vAcc = aAcc; vPond = aPond; vDir = aDir; vXZ = position.xz;');
     sh.fragmentShader = `uniform float uWet; uniform float uThresh; uniform float uTime;
-      varying float vMask; varying vec2 vLUv; uniform float uNight; uniform sampler2D uLampTex; uniform vec3 uLampColor; uniform float uHouseGlow; uniform vec3 uHouseColor;
+      varying float vMask; varying vec2 vLUv; varying float vQc; varying float vMud; uniform float uRisk; uniform float uQEff; uniform float uNight; uniform sampler2D uLampTex; uniform vec3 uLampColor; uniform float uHouseGlow; uniform vec3 uHouseColor;
       float gHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float gNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
         return mix(mix(gHash(i), gHash(i + vec2(1, 0)), f.x), mix(gHash(i + vec2(0, 1)), gHash(i + vec2(1, 1)), f.x), f.y); }
@@ -498,6 +596,14 @@ function addWater(mat, ground) {
           diffuseColor.rgb = groundCol(vXZ);
         #elif defined(USE_MAP)
           diffuseColor.rgb = mix(groundCol(vXZ), diffuseColor.rgb, smoothstep(0.2, 0.95, vMask));
+        #endif
+        #ifndef GROUND
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.22, 0.14, 0.08), clamp(vMud, 0.0, 1.0) * 0.85);
+          if (uRisk > 0.5) {
+            vec3 rc = vQc < 50.0 ? vec3(0.85, 0.12, 0.08) : vQc < 100.0 ? vec3(0.95, 0.42, 0.08) : vQc < 200.0 ? vec3(0.95, 0.75, 0.15) : vec3(0.45, 0.68, 0.25);
+            diffuseColor.rgb = mix(diffuseColor.rgb * 0.75, rc, vQc < 400.0 ? 0.6 : 0.0);
+            if (uQEff > 0.0 && vQc < uQEff) diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.05, 0.3), 0.35 + 0.35 * sin(uTime * 5.0));
+          }
         #endif
         diffuseColor.rgb *= 1.0 - 0.2 * uWet;
         float ch = smoothstep(uThresh, uThresh + 0.05, vAcc);
@@ -732,6 +838,121 @@ function stepRunoff(dt, spawnRate) {
   runoffIdle = !alive;
 }
 
+// ---------- landslides: scar at the source, debris running down the flow paths, deposit where it stops ----------
+const qRain = () => (20 + 180 * S.intensity) * S.wet;     // recharge felt by the soil (mm/day)
+const vOf = k => Math.min(MR - 1, Math.round(((k / cols) | 0) / step)) * MC + Math.min(MC - 1, Math.round((k % cols) / step));
+let mudDirty = false;
+const setMud = (k, v) => { const vi = vOf(k); if (aMudV[vi] < v) { aMudV[vi] = v; mudDirty = true; } };
+const ND = QUALITY === 'leve' ? 2500 : 6000, MU = Math.tan(14 * Math.PI / 180);   // basal friction of the debris
+const dCell = new Int32Array(ND), dT = new Float32Array(ND), dV = new Float32Array(ND), dStop = new Float32Array(ND);
+const dState = new Uint8Array(ND), dJx = new Float32Array(ND), dJz = new Float32Array(ND);   // 0 free, 1 moving, 2 deposited
+const dPos = new Float32Array(ND * 3), dFade = new Float32Array(ND);
+let dNext = 0, debrisActive = false;
+const dg = new THREE.BufferGeometry();
+dg.setAttribute('position', new THREE.BufferAttribute(dPos, 3).setUsage(THREE.DynamicDrawUsage));
+dg.setAttribute('aFade', new THREE.BufferAttribute(dFade, 1).setUsage(THREE.DynamicDrawUsage));
+const debris = new THREE.Points(dg, new THREE.ShaderMaterial({
+  vertexShader: `attribute float aFade; varying float vF;
+    void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      gl_PointSize = aFade > 0.0 ? max(2.0, 3.2 * 700.0 / -mv.z) : 0.0; gl_Position = projectionMatrix * mv; vF = aFade; }`,
+  fragmentShader: `varying float vF;
+    void main() { float d = length(gl_PointCoord - 0.5); if (d > 0.5 || vF <= 0.0) discard;
+      gl_FragColor = vec4(vec3(0.36, 0.24, 0.13) * (0.85 + 0.6 * (0.5 - d)), vF * 0.9); }`,
+  transparent: true, depthWrite: false,
+}));
+debris.frustumCulled = false;
+terrain.add(debris);
+
+let fly = null;
+function flyTo(x, z) {
+  const to = new THREE.Vector3(x, sampleH(x, z) * S.exag, z);
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  fly = { t: 0, fT: controls.target.clone(), tT: to, fP: camera.position.clone(), tP: to.clone().addScaledVector(dir, 300) };
+}
+let lastToast = -1e9, toastTimer = 0, lastSlide = null;
+function showToast(vol) {
+  const now = performance.now();
+  if (now - lastToast < 4000) return;
+  lastToast = now;
+  const toast = $('toast');
+  toast.innerHTML = `<span><b>Deslizamento</b> · ~${Math.round(vol).toLocaleString('pt-BR')} m³</span><button id="tview">Ver</button>`;
+  toast.hidden = false;
+  $('tview').onclick = () => { flyTo(lastSlide.x, lastSlide.z); toast.hidden = true; };
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { toast.hidden = true; }, 6000);
+}
+function triggerSlide(s) {
+  const si = s % cols, sj = (s / cols) | 0, R = 3 + Math.random() * 4, Rc = Math.ceil(R), cells = [];
+  for (let dj = -Rc; dj <= Rc; dj++) for (let di = -Rc; di <= Rc; di++) {
+    const i = si + di, j = sj + dj;
+    if (di * di + dj * dj > R * R || i < 0 || j < 0 || i >= cols || j >= rows) continue;
+    const k = j * cols + i;
+    if (H[k] && !failed[k] && tanS[k] > 0.27) cells.push(k);   // only ground steeper than ~15° moves
+  }
+  if (!cells.length) return false;
+  for (const k of cells) { failed[k] = 1; setMud(k, 1); aQcV[vOf(k)] = 1e4; }
+  const n = Math.min(700, cells.length * 5);
+  for (let m = 0; m < n; m++) {
+    const p = dNext; dNext = (dNext + 1) % ND;
+    dCell[p] = cells[(Math.random() * cells.length) | 0]; dT[p] = Math.random(); dV[p] = 0.5 + Math.random();
+    dState[p] = 1; dStop[p] = 0; dJx[p] = (Math.random() - 0.5) * dx * 1.6; dJz[p] = (Math.random() - 0.5) * dz * 1.6;
+  }
+  const vol = cells.length * cellArea * RP.z;
+  S.slideCount++; S.slideVol += vol;
+  lastSlide = { x: cx(s), z: cz(s) };
+  $('nslides').textContent = S.slideCount;
+  showToast(vol);
+  return true;
+}
+let statT = 1;
+function stepSlides(dt) {
+  const q = qRain();
+  waterU.uQEff.value = q;
+  if (S.slides && q > 0) {
+    const nU = unstableCount(q);
+    // the more ground is past its critical rainfall, the more often a slope fails
+    if (nU > 0 && Math.random() < Math.min(0.5, nU * 4e-5) * dt * S.accel / 6)
+      for (let tries = 0; tries < 6; tries++) { const s = qOrder[(Math.random() * nU) | 0]; if (!failed[s] && triggerSlide(s)) break; }
+  }
+  statT += dt;
+  if (statT > 0.5) { statT = 0; $('qv').textContent = Math.round(q) + ' mm/dia'; $('unst').textContent = fmtArea(unstableCount(q) * cellArea); }
+
+  let active = false;
+  const ddt = dt * 1.5;
+  for (let p = 0; p < ND; p++) {
+    if (!dState[p]) continue;
+    active = true;
+    let k = dCell[p], r = rec[k];
+    if (dState[p] === 1) {
+      if (r < 0) dState[p] = 2;
+      else {
+        // sliding block on the local slope: gravity minus basal friction
+        const run = Math.hypot(cx(r) - cx(k), cz(r) - cz(k)), drop = hf[k] - hf[r];
+        dV[p] = Math.min(16, dV[p] + 9.81 * (drop - MU * run) / Math.hypot(run, drop) * ddt);
+        if (dV[p] <= 0) dState[p] = 2;
+        else {
+          dT[p] += dV[p] * ddt / run;
+          while (dT[p] >= 1 && r >= 0) { dT[p] -= 1; k = r; r = rec[k]; setMud(k, 0.35); }
+          dCell[p] = k;
+          if (r < 0) dState[p] = 2;
+        }
+      }
+      if (dState[p] === 2) { setMud(k, 0.85); for (const [a, b] of NB) { const i = k % cols + a, j = ((k / cols) | 0) + b; if (i >= 0 && j >= 0 && i < cols && j < rows) setMud(j * cols + i, 0.6); } }
+    }
+    const moving = dState[p] === 1 && r >= 0, t = moving ? dT[p] : 0, k2 = moving ? r : k;
+    dPos[p * 3] = lerp(cx(k), cx(k2), t) + dJx[p];
+    dPos[p * 3 + 2] = lerp(cz(k), cz(k2), t) + dJz[p];
+    dPos[p * 3 + 1] = lerp(hf[k], hf[k2], t) + 0.6;
+    if (dState[p] === 2) {
+      dStop[p] += dt;
+      dFade[p] = 1 - ss(dStop[p], 4, 9);
+      if (dStop[p] > 9) { dState[p] = 0; dFade[p] = 0; }
+    } else dFade[p] = 1;
+  }
+  if (active || debrisActive) dg.attributes.position.needsUpdate = dg.attributes.aFade.needsUpdate = true;
+  debrisActive = active;
+  if (mudDirty) { g.attributes.aMud.needsUpdate = g.attributes.aQc.needsUpdate = true; mudDirty = false; }
+}
+
 // ---------- rain: streaks animated entirely on the GPU ----------
 const NR = CFG.rain, RAIN_BOX = 1900, RAIN_TOP = 1100;
 const rPos = new Float32Array(NR * 6), rEnd = new Float32Array(NR * 2);
@@ -788,7 +1009,7 @@ for (let i = 0; i < CFG.clouds; i++) {
 }
 
 // ---------- state + UI ----------
-const S = { exag: 1.5, hour: 10, raining: false, intensity: 0.6, wind: 0.3, accel: 6, storm: 0, wet: 0, flash: 0, flow: true, lamps: true, houses: true };
+const S = { exag: 1.5, hour: 10, raining: false, intensity: 0.6, wind: 0.3, accel: 6, storm: 0, wet: 0, flash: 0, flow: true, lamps: true, houses: true, slides: true, slideCount: 0, slideVol: 0 };
 const applyExag = () => { terrain.scale.y = S.exag; };
 applyExag();
 const fmtHour = h => `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round((h % 1) * 60) % 60).padStart(2, '0')}`;
@@ -827,6 +1048,26 @@ document.querySelectorAll('.tabs button').forEach(btn => btn.onclick = () => {
 const panel = $('panel');
 if (innerWidth <= 760) panel.classList.add('collapsed');
 $('phead').onclick = () => panel.classList.toggle('collapsed');
+$('mapa').onchange = e => { waterU.uRisk.value = e.target.checked ? 1 : 0; };
+$('slides').onchange = e => { S.slides = e.target.checked; };
+$('provocar').onclick = () => {
+  // pick among the most susceptible ground still standing
+  const n = Math.min(qOrder.length, 400);
+  for (let tries = 0; tries < 40; tries++) {
+    const s = qOrder[(Math.random() * n) | 0];
+    if (!failed[s] && triggerSlide(s)) { flyTo(cx(s), cz(s)); $('toast').hidden = true; break; }
+  }
+  if (innerWidth <= 760) panel.classList.add('collapsed');
+};
+$('limpar').onclick = () => {
+  aMudV.fill(0); failed.fill(0); dState.fill(0); dFade.fill(0); fillQcAttr();
+  g.attributes.aMud.needsUpdate = dg.attributes.aFade.needsUpdate = true;
+  S.slideCount = 0; S.slideVol = 0; $('nslides').textContent = '0';
+};
+for (const [id, key, fmt] of [['solo', 'z', v => v.toFixed(1) + ' m'], ['coesao', 'c', v => v + ' kPa'], ['atrito', 'phi', v => v + '°']]) {
+  $(id).oninput = e => { $(id + 'v').textContent = fmt(+e.target.value); };
+  $(id).onchange = e => { RP[key] = +e.target.value; computeQc(); rebuildBins(); fillQcAttr(); };
+}
 $('lgbar').style.background = 'linear-gradient(90deg,' + STOPS.map(([t, c]) => `rgb(${c}) ${t * 100}%`).join(',') + ')';
 $('lgmin').textContent = zmin.toFixed(0) + ' m';
 $('lgmax').textContent = zmax.toFixed(0) + ' m';
@@ -958,7 +1199,7 @@ let pending = null, lastEv = null, lastPick = 0, down = null;
 const cvs = renderer.domElement;
 cvs.addEventListener('pointermove', ev => { if (ev.pointerType === 'mouse') pending = ev; });
 // on touch, a short tap (not a drag) inspects the terrain
-cvs.addEventListener('pointerdown', ev => { down = { x: ev.clientX, y: ev.clientY, t: performance.now() }; });
+cvs.addEventListener('pointerdown', ev => { fly = null; down = { x: ev.clientX, y: ev.clientY, t: performance.now() }; });
 cvs.addEventListener('pointerup', ev => {
   if (down && ev.pointerType !== 'mouse' && Math.hypot(ev.clientX - down.x, ev.clientY - down.y) < 10 && performance.now() - down.t < 350) {
     pending = { clientX: ev.clientX, clientY: ev.clientY };
@@ -967,6 +1208,12 @@ cvs.addEventListener('pointerup', ev => {
   }
   down = null;
 });
+function riskLine(k) {
+  if (failed[k]) return '<div class="r">Deslizou nesta simulação</div>';
+  const fs = factorOfSafety(k, qRain()), q = qc[k];
+  const crit = q >= 1e4 ? 'não desliza' : q <= 0 ? 'instável mesmo seco' : 'chuva crítica ' + Math.round(q) + ' mm/dia';
+  return `<div class="r">Fator de segurança ${isFinite(fs) ? fs.toFixed(2) : '—'}${fs < 1 ? ' · instável' : ''} · ${crit}</div>`;
+}
 function updateReadout(now) {
   if (pending) { lastEv = pending; pending = null; }
   else if (!lastEv || now - lastPick < 400) return;   // refresh slowly so wet/flow values stay live
@@ -979,7 +1226,8 @@ function updateReadout(now) {
   const flowing = H[k] && Math.log(acc[k]) / logAccMax >= waterU.uThresh.value;
   out.innerHTML = `<div class="z">${(hit.h + zmin).toFixed(1)} m${H[k] ? '' : '<small>estimado · fora do levantamento</small>'}</div>
     <div class="c">${lat.toFixed(6)}°, ${lon.toFixed(6)}° · declividade ${slopeAt(hit.x, hit.z)}°</div>
-    ${H[k] ? `<div class="w">Área de contribuição: ${fmtArea(area)}${flowing ? ' · escoando' : ''}</div>` : ''}`;
+    ${H[k] ? `<div class="w">Área de contribuição: ${fmtArea(area)}${flowing ? ' · escoando' : ''}</div>` : ''}
+    ${H[k] ? riskLine(k) : ''}`;
 }
 
 const northg = $('northg');
@@ -1001,11 +1249,18 @@ renderer.setAnimationLoop(() => {
     if (ftSum / ftN > 1 / 28 && pixelRatio > 1) { pixelRatio = Math.max(1, pixelRatio - 0.25); renderer.setPixelRatio(pixelRatio); }
     ftSum = ftN = 0;
   }
+  if (fly) {
+    fly.t = Math.min(1, fly.t + dt / 1.4);
+    const e = ss(fly.t, 0, 1);
+    controls.target.lerpVectors(fly.fT, fly.tT, e); camera.position.lerpVectors(fly.fP, fly.tP, e);
+    if (fly.t >= 1) fly = null;
+  }
   controls.update();
   const rainNow = updateWeather(dt, t);
   // runoff keeps going for a while after the rain stops, while the soil drains
   const spawnRate = Math.max(rainNow * 1.6, (S.raining ? 0 : S.wet * S.wet) * 0.5);
   if (S.flow) stepRunoff(dt * S.accel, spawnRate / S.accel);
+  stepSlides(dt);
   northg.setAttribute('transform', `rotate(${THREE.MathUtils.radToDeg(controls.getAzimuthalAngle())})`);
   updateReadout(performance.now());
   renderer.render(scene, camera);
